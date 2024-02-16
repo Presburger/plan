@@ -542,4 +542,12 @@ proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
   return expr;
 }
 
+bool checkDirectComparisonBinaryField(proto::plan::ColumnInfo *info) {
+  if (info->data_type() == proto::schema::DataType::Array &&
+      info->nested_path_size() == 0) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace milvus
