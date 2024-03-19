@@ -40,21 +40,21 @@ public:
   // ok
   virtual std::any visitString(PlanParser::StringContext *ctx) override {
     auto val = ctx->getText();
-    return ExprWithDtype(createValueExpr<std::string>(val),
+    return ExprWithDtype(createValueExpr<std::string>(val, this->arena.get()),
                          proto::schema::DataType::String, true);
   }
   // ok
   virtual std::any visitFloating(PlanParser::FloatingContext *ctx) override {
     auto text = ctx->getText();
     auto val = std::strtod(text.c_str(), NULL);
-    return ExprWithDtype(createValueExpr<double>(val),
+    return ExprWithDtype(createValueExpr<double>(val, this->arena.get()),
                          proto::schema::DataType::Float, true);
   }
   // ok
   virtual std::any visitInteger(PlanParser::IntegerContext *ctx) override {
     auto text = ctx->getText();
     int64_t val = std::strtoll(text.c_str(), NULL, 10);
-    return ExprWithDtype(createValueExpr<int64_t>(val),
+    return ExprWithDtype(createValueExpr<int64_t>(val, this->arena.get()),
                          proto::schema::DataType::Int64, true);
   }
   // ok
@@ -62,90 +62,108 @@ public:
     auto text = ctx->getText();
     bool val;
     std::istringstream(text) >> std::boolalpha >> val;
-    return ExprWithDtype(createValueExpr<bool>(val),
+    return ExprWithDtype(createValueExpr<bool>(val, this->arena.get()),
                          proto::schema::DataType::Bool, true);
   }
 
   virtual std::any visitPower(PlanParser::PowerContext *ctx) override {
-    auto a = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this)).expr;
-    auto b = std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this)).expr;
+    auto left_expr =
+        std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this)).expr;
+    auto right_expr =
+        std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this)).expr;
 
-    float left, right;
+    auto left = extractValue(left_expr);
+    auto right = extractValue(right_expr);
 
-    {
-      auto opt_1 = extractValue<int64_t>(a);
-      auto opt_2 = extractValue<double>(a);
-      assert(opt_1.has_value() || opt_2.has_value());
-      if (opt_1.has_value())
-        left = float(opt_1.value());
-      else
-        left = float(opt_2.value());
-    }
+    assert(left.has_value() && right.has_value());
+    assert(left.type() == typeid(double) || left.type() == typeid(int64_t));
+    assert(right.type() == typeid(double) || right.type() == typeid(int64_t));
+    float left_value, right_value;
+    if (left.type() == typeid(int64_t))
+      left_value = float(std::any_cast<int64_t>(left));
+    if (left.type() == typeid(double))
+      left_value = float(std::any_cast<double>(left));
+    if (right.type() == typeid(int64_t))
+      right_value = float(std::any_cast<int64_t>(right));
+    if (right.type() == typeid(double))
+      right_value = float(std::any_cast<double>(right));
 
-    {
-      auto opt_1 = extractValue<int64_t>(b);
-      auto opt_2 = extractValue<double>(b);
-      assert(opt_1.has_value() || opt_2.has_value());
-      if (opt_1.has_value())
-        right = float(opt_1.value());
-      else
-        right = float(opt_2.value());
-    }
-    return ExprWithDtype(createValueExpr<double>(powf(left, right)),
+    return ExprWithDtype(createValueExpr<double>(powf(left_value, right_value),
+                                                 this->arena.get()),
                          proto::schema::DataType::Double, false);
   }
 
   virtual std::any visitLogicalOr(PlanParser::LogicalOrContext *ctx) override {
-    auto a_expr_with_type =
+    auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-    auto b_expr_with_type =
+    auto right_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
 
-    auto a = a_expr_with_type.expr;
-    auto b = b_expr_with_type.expr;
+    auto left_expr = left_expr_with_type.expr;
+    auto right_expr = right_expr_with_type.expr;
 
-    if (extractValue<bool>(a).has_value() &&
-        extractValue<bool>(b).has_value()) {
+    auto left_value = extractValue(left_expr);
+    auto right_value = extractValue(right_expr);
+
+    if (left_value.has_value() && right_value.has_value() &&
+        left_value.type() == typeid(bool) &&
+        right_value.type() == typeid(bool)) {
       return ExprWithDtype(
-          createValueExpr<bool>(extractValue<bool>(a).value() ||
-                                extractValue<bool>(b).value()),
-          proto::schema::DataType::Bool, false);
+          createValueExpr<bool>(std::any_cast<bool>(left_value) ||
+                                    std::any_cast<bool>(right_value),
+                                this->arena.get()
+
+                                    ),
+          proto::schema::DataType::Bool, false
+
+      )
     }
 
-    assert(!a_expr_with_type.dependent);
-    assert(!b_expr_with_type.dependent);
-    assert(a_expr_with_type.dtype == proto::schema::DataType::Bool);
-    assert(b_expr_with_type.dtype == proto::schema::DataType::Bool);
+    assert(!left_expr_with_type.dependent);
+    assert(!right_expr_with_type.dependent);
+    assert(left_expr_with_type.dtype == proto::schema::DataType::Bool);
+    assert(right_expr_with_type.dtype == proto::schema::DataType::Bool);
     return ExprWithDtype(
-        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalOr>(a, b),
+        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalOr>(left_expr,
+                                                                  right_expr),
         proto::schema::DataType::Bool, false);
   }
 
   virtual std::any
   visitLogicalAnd(PlanParser::LogicalAndContext *ctx) override {
 
-    auto a_expr_with_type =
+    auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-    auto b_expr_with_type =
+    auto right_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
 
-    auto a = a_expr_with_type.expr;
-    auto b = b_expr_with_type.expr;
+    auto left_expr = left_expr_with_type.expr;
+    auto right_expr = right_expr_with_type.expr;
 
-    if (extractValue<bool>(a).has_value() &&
-        extractValue<bool>(b).has_value()) {
+    auto left_value = extractValue(left_expr);
+    auto right_value = extractValue(right_expr);
+
+    if (left_value.has_value() && right_value.has_value() &&
+        left_value.type() == typeid(bool) &&
+        right_value.type() == typeid(bool)) {
       return ExprWithDtype(
-          createValueExpr<bool>(extractValue<bool>(a).value() &&
-                                extractValue<bool>(b).value()),
-          proto::schema::DataType::Bool, false);
+          createValueExpr<bool>(std::any_cast<bool>(left_value) ||
+                                    std::any_cast<bool>(right_value),
+                                this->arena.get()
+
+                                    ),
+          proto::schema::DataType::Bool, false
+
+      );
     }
 
-    assert(!a_expr_with_type.dependent);
-    assert(!b_expr_with_type.dependent);
-    assert(a_expr_with_type.dtype == proto::schema::DataType::Bool);
-    assert(b_expr_with_type.dtype == proto::schema::DataType::Bool);
+    assert(!left_expr_with_type.dependent);
+    assert(!right_expr_with_type.dependent);
+    assert(left_expr_with_type.dtype == proto::schema::DataType::Bool);
+    assert(right_expr_with_type.dtype == proto::schema::DataType::Bool);
     return ExprWithDtype(
-        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalAnd>(a, b),
+        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalOr>(left_expr,
+                                                                  right_expr),
         proto::schema::DataType::Bool, false);
   }
 
@@ -167,127 +185,154 @@ public:
       assert(canBeCompared(field, toValueExpr(&expr)));
     }
 
-    auto expr = new proto::plan::Expr();
-    auto json_contain_expr = new proto::plan::JSONContainsExpr();
-    auto value = json_contain_expr->add_elements();
-    value->set_allocated_array_val(
-        new proto::plan::Array(elem.expr->value_expr().value().array_val()));
+    auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+        this->arena.get());
+    auto json_contain_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::JSONContainsExpr>(
+            this->arena.get());
+    auto value = json_contain_expr->add_elements(); // MayBe BUG
+    value->unsafe_arena_set_allocated_array_val(
+        google::protobuf::Arena::CreateMessage<proto::plan::Array>(
+            this->arena.get(), elem.expr->value_expr().value().array_val()));
     json_contain_expr->set_elements_same_type(
         elem.expr->value_expr().value().array_val().same_type());
-    json_contain_expr->set_allocated_column_info(
-        new proto::plan::ColumnInfo(info));
+    json_contain_expr->unsafe_arena_set_allocated_column_info(
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+            this->arena.get(), info));
+
     json_contain_expr->set_op(proto::plan::JSONContainsExpr_JSONOp_ContainsAll);
-    expr->set_allocated_json_contains_expr(json_contain_expr);
+    expr->unsafe_arena_set_allocated_json_contains_expr(json_contain_expr);
     return ExprWithDtype(expr, proto::schema::Bool, false);
   }
 
   virtual std::any visitMulDivMod(PlanParser::MulDivModContext *ctx) override {
-    auto a_expr_with_type =
+    auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-    auto b_expr_with_type =
+    auto right_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
-    auto a = a_expr_with_type.expr;
-    auto b = b_expr_with_type.expr;
-    if (extractValue<double>(a).has_value() &&
-        extractValue<double>(b).has_value()) {
-      switch (ctx->op->getType()) {
-      case PlanParser::MUL:
-        return ExprWithDtype(
-            createValueExpr<double>(extractValue<double>(a).value() *
-                                    extractValue<double>(b).value()),
-            proto::schema::DataType::Double, false);
-      case PlanParser::DIV:
-        return ExprWithDtype(
-            createValueExpr<double>(extractValue<double>(a).value() /
-                                    extractValue<double>(b).value()),
-            proto::schema::DataType::Double, false);
-      default:
-        assert(false);
+    auto left_expr = left_expr_with_type.expr;
+    auto right_expr = right_expr_with_type.expr;
+
+    auto left_value = extractValue(left_expr);
+    auto right_value = extractValue(right_expr);
+    if (left_value.has_value() && right_value.has_value()) {
+
+      if (left_value.type() == typeid(double) &&
+          right_value.type() == typeid(double)) {
+        switch (ctx->op->getType()) {
+        case PlanParser::MUL:
+          return ExprWithDtype(
+              createValueExpr<double>(std::any_cast<double>(left_value) *
+                                          std::any_cast<double>(right_value),
+                                      this->arena.get()),
+              proto::schema::DataType::Double, false);
+        case PlanParser::DIV:
+          return ExprWithDtype(
+              createValueExpr<double>(std::any_cast<double>(left_value) /
+                                          std::any_cast<double>(right_value),
+                                      this->arena.get()),
+              proto::schema::DataType::Double, false);
+        default:
+          assert(false);
+        }
+      }
+
+      if (left_value.type() == typeid(int64_t) &&
+          right_value.type() == typeid(int64_t)) {
+        switch (ctx->op->getType()) {
+        case PlanParser::MUL:
+          return createValueExpr<int64_t>(
+              std::any_cast<int64_t>(left_value) *
+                  std::any_cast<int64_t>(right_value),
+              this->arena.get());
+        case PlanParser::DIV:
+          return createValueExpr<int64_t>(
+              std::any_cast<int64_t>(left_value) /
+                  std::any_cast<int64_t>(right_value),
+              this->arena.get());
+        case PlanParser::MOD:
+          return createValueExpr<int64_t>(
+              std::any_cast<int64_t>(left_value) %
+                  std::any_cast<int64_t>(right_value),
+              this->arena.get());
+        default:
+          assert(false);
+        }
+      }
+
+      if (left_value.type() == typeid(double) &&
+          right_value.type() == typeid(int64_t)) {
+        switch (ctx->op->getType()) {
+        case PlanParser::MUL:
+          return createValueExpr<double>(
+              std::any_cast<double>(left_value) *
+                  std::any_cast<int64_t>(right_value),
+              this->arena.get());
+        case PlanParser::DIV:
+          return createValueExpr<double>(
+              std::any_cast<double>(left_value) /
+                  std::any_cast<int64_t>(right_value),
+              this->arena.get());
+        default:
+          assert(false);
+        }
+      }
+
+      if (left_value.type() == typeid(int64_t) &&
+          right_value.type() == typeid(double)) {
+
+        switch (ctx->op->getType()) {
+        case PlanParser::MUL:
+          return createValueExpr<double>(
+              double(std::any_cast<int64_t>(left_value)) *
+                  std::any_cast<double>(right_value),
+              this->arena.get());
+        case PlanParser::DIV:
+          return createValueExpr<double>(
+              double(std::any_cast<int64_t>(left_value)) *
+                  std::any_cast<double>(right_value),
+              this->arena.get());
+        default:
+          assert(false);
+        }
       }
     }
 
-    if (extractValue<int64_t>(a).has_value() &&
-        extractValue<int64_t>(b).has_value()) {
-      switch (ctx->op->getType()) {
-      case PlanParser::MUL:
-        return createValueExpr<int64_t>(extractValue<int64_t>(a).value() *
-                                        extractValue<int64_t>(b).value());
-      case PlanParser::DIV:
-        return createValueExpr<int64_t>(extractValue<int64_t>(a).value() /
-                                        extractValue<int64_t>(b).value());
-      case PlanParser::MOD:
-        return createValueExpr<int64_t>(extractValue<int64_t>(a).value() %
-                                        extractValue<int64_t>(b).value());
-      default:
-        assert(false);
-      }
-    }
-
-    if (extractValue<double>(a).has_value() &&
-        extractValue<int64_t>(b).has_value()) {
-      switch (ctx->op->getType()) {
-      case PlanParser::MUL:
-        return createValueExpr<double>(
-            extractValue<double>(a).value() *
-            double(extractValue<int64_t>(b).value()));
-      case PlanParser::DIV:
-        return createValueExpr<double>(
-            extractValue<double>(a).value() /
-            double(extractValue<int64_t>(b).value()));
-      default:
-        assert(false);
-      }
-    }
-
-    if (extractValue<int64_t>(a).has_value() &&
-        extractValue<double>(b).has_value()) {
-      switch (ctx->op->getType()) {
-      case PlanParser::MUL:
-        return double(extractValue<int64_t>(a).value()) *
-               extractValue<double>(b).value();
-      case PlanParser::DIV:
-        return double(extractValue<int64_t>(a).value()) /
-               extractValue<double>(b).value();
-      default:
-        assert(false);
-      }
-    }
-
-    if (a->has_column_expr()) {
-      assert(a->column_expr().info().data_type() !=
+    if (left_expr->has_column_expr()) {
+      assert(left_expr->column_expr().info().data_type() !=
              proto::schema::DataType::Array);
-      assert(a->column_expr().info().nested_path_size() == 0);
+      assert(left_expr->column_expr().info().nested_path_size() == 0);
     }
 
-    if (b->has_column_expr()) {
-      assert(b->column_expr().info().data_type() !=
+    if (right_expr->has_column_expr()) {
+      assert(right_expr->column_expr().info().data_type() !=
              proto::schema::DataType::Array);
-      assert(b->column_expr().info().nested_path_size() == 0);
+      assert(right_expr->column_expr().info().nested_path_size() == 0);
     }
 
-    if (a_expr_with_type.dtype == proto::schema::DataType::Array) {
-      if (b_expr_with_type.dtype == proto::schema::DataType::Array)
-        assert(
-            canArithmeticDtype(getArrayElementType(a), getArrayElementType(b)));
-      else if (arithmeticDtype(b_expr_with_type.dtype))
-        assert(
-            canArithmeticDtype(getArrayElementType(a), b_expr_with_type.dtype));
+    if (left_expr_with_type.dtype == proto::schema::DataType::Array) {
+      if (right_expr_with_type.dtype == proto::schema::DataType::Array)
+        assert(canArithmeticDtype(getArrayElementType(left_expr),
+                                  getArrayElementType(right_expr)));
+      else if (arithmeticDtype(left_expr_with_type.dtype))
+        assert(canArithmeticDtype(getArrayElementType(left_expr),
+                                  right_expr_with_type.dtype));
       else
         assert(false);
     }
 
-    if (b_expr_with_type.dtype == proto::schema::DataType::Array) {
-      if (arithmeticDtype(a_expr_with_type.dtype))
-        assert(
-            canArithmeticDtype(a_expr_with_type.dtype, getArrayElementType(b)));
+    if (right_expr_with_type.dtype == proto::schema::DataType::Array) {
+      if (arithmeticDtype(left_expr_with_type.dtype))
+        assert(canArithmeticDtype(left_expr_with_type.dtype,
+                                  getArrayElementType(right_expr)));
       else
         assert(false);
     }
 
-    if (arithmeticDtype(a_expr_with_type.dtype) &&
-        arithmeticDtype(b_expr_with_type.dtype)) {
-      assert(
-          canArithmeticDtype(a_expr_with_type.dtype, b_expr_with_type.dtype));
+    if (arithmeticDtype(left_expr_with_type.dtype) &&
+        arithmeticDtype(right_expr_with_type.dtype)) {
+      assert(canArithmeticDtype(left_expr_with_type.dtype,
+                                right_expr_with_type.dtype));
     } else {
       assert(false);
     }
@@ -295,18 +340,19 @@ public:
     switch (ctx->op->getType()) {
     case PlanParser::MUL:
       return ExprWithDtype(
-          createBinArithExpr<proto::plan::ArithOpType::Mul>(a, b),
-          calDataType(&a_expr_with_type, &b_expr_with_type), false);
+          createBinArithExpr<proto::plan::ArithOpType::Mul>(
+              left_expr, right_expr, this->arena.get()),
+          calDataType(&left_expr_with_type, &right_expr_with_type), false);
     case PlanParser::DIV:
       return ExprWithDtype(
-          createBinArithExpr<proto::plan::ArithOpType::Div>(a, b),
-          calDataType(&a_expr_with_type, &b_expr_with_type), false);
-
+          createBinArithExpr<proto::plan::ArithOpType::Div>(
+              left_expr, right_expr, this->arena.get()),
+          calDataType(&left_expr_with_type, &right_expr_with_type), false);
     case PlanParser::MOD:
-
       return ExprWithDtype(
-          createBinArithExpr<proto::plan::ArithOpType::Mod>(a, b),
-          calDataType(&a_expr_with_type, &b_expr_with_type), false);
+          createBinArithExpr<proto::plan::ArithOpType::Mod>(
+              left_expr, right_expr, this->arena.get()),
+          calDataType(&left_expr_with_type, &right_expr_with_type), false);
 
     default:
       assert(false);
@@ -323,9 +369,13 @@ public:
     }
     assert(!(field.data_type() == proto::schema::DataType::JSON &&
              nested_path.empty()));
-    auto expr = new proto::plan::Expr();
-    auto col_expr = new proto::plan::ColumnExpr();
-    auto info = new proto::plan::ColumnInfo();
+    auto expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena.get());
+    auto col_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnExpr>(
+            arena.get());
+    auto info = google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+        arena.get());
     info->set_field_id(field.fieldid());
     info->set_data_type(field.data_type());
     info->set_is_primary_key(field.is_primary_key());
@@ -340,15 +390,16 @@ public:
   }
 
   virtual std::any visitLike(PlanParser::LikeContext *ctx) override {
-    auto a = std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
-    auto a_expr = a.expr;
-    assert(a_expr);
-    auto info = a_expr->column_expr().info();
+    auto child_expr_with_type =
+        std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
+    auto child_expr = child_expr_with_type.expr;
+    assert(child_expr);
+    auto info = child_expr->column_expr().info();
     assert(!(info.data_type() == proto::schema::DataType::JSON &&
              info.nested_path_size() == 0));
-    assert((a.dtype == proto::schema::DataType::String ||
-            a.dtype == proto::schema::DataType::JSON) ||
-           (a.dtype == proto::schema::DataType::Array &&
+    assert((child_expr_with_type.dtype == proto::schema::DataType::String ||
+            child_expr_with_type.dtype == proto::schema::DataType::JSON) ||
+           (child_expr_with_type.dtype == proto::schema::DataType::Array &&
             info.element_type() == proto::schema::DataType::String));
 
     auto str = ctx->StringLiteral()->getText();
@@ -356,8 +407,11 @@ public:
 
     auto res = translatePatternMatch(pattern);
 
-    auto expr = new proto::plan::Expr();
-    auto unaryrange_expr = new proto::plan::UnaryRangeExpr();
+    auto expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena.get());
+    auto unaryrange_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::UnaryRangeExpr>(
+            arena.get());
     unaryrange_expr->set_op(res.first);
     unaryrange_expr->set_allocated_column_info(
         new proto::plan::ColumnInfo(info));
@@ -366,197 +420,43 @@ public:
   }
 
   virtual std::any visitEquality(PlanParser::EqualityContext *ctx) override {
-    auto a = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-    auto b = std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
-    {
-      auto a_opt = extractValue<bool>(a.expr);
-      auto b_opt = extractValue<bool>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
+    auto left_expr_with_type =
+        std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
+    auto right_expr_with_type =
+        std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
 
-    {
-      auto a_opt = extractValue<std::string>(a.expr);
-      auto b_opt = extractValue<std::string>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
+    auto left_value = extractValue(left_expr_with_type.expr);
+    auto right_value = extractValue(right_expr_with_type.expr);
 
-    {
-      auto a_opt = extractValue<double>(a.expr);
-      auto b_opt = extractValue<int64_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
+    if (left_value.has_value() && right_value.has_value()) {
 
-    {
-      auto a_opt = extractValue<int64_t>(a.expr);
-      auto b_opt = extractValue<double>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-    {
-      auto a_opt = extractValue<int32_t>(a.expr);
-      auto b_opt = extractValue<double>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-    {
-      auto a_opt = extractValue<double>(a.expr);
-      auto b_opt = extractValue<int32_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
+#define PROCESS_EQALITY(left_type, right_type)                                 \
+  if (left_value.type() == typeid(left_type) &&                                \
+      right_value.type() == typeid(right_type)) {                              \
+    switch (ctx->op->getType()) {                                              \
+    case PlanParser::EQ:                                                       \
+      return createValueExpr<bool>(std::any_cast<left_type>(left_value) ==     \
+                                       std::any_cast<right_type>(right_value), \
+                                   this->arena.get());                         \
+    case PlanParser::NE:                                                       \
+      return createValueExpr<bool>(std::any_cast<left_type>(left_value) !=     \
+                                       std::any_cast<right_type>(right_value), \
+                                   this->arena.get());                         \
+    }                                                                          \
+  }
 
-    {
-      auto a_opt = extractValue<float>(a.expr);
-      auto b_opt = extractValue<double>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-    {
-      auto a_opt = extractValue<double>(a.expr);
-      auto b_opt = extractValue<float>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-    {
-      auto a_opt = extractValue<int32_t>(a.expr);
-      auto b_opt = extractValue<float>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-
-    {
-      auto a_opt = extractValue<float>(a.expr);
-      auto b_opt = extractValue<int32_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-
-    {
-      auto a_opt = extractValue<int32_t>(a.expr);
-      auto b_opt = extractValue<int32_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-
-    {
-      auto a_opt = extractValue<int32_t>(a.expr);
-      auto b_opt = extractValue<uint64_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
-    }
-
-    {
-      auto a_opt = extractValue<int32_t>(a.expr);
-      auto b_opt = extractValue<uint64_t>(b.expr);
-      if (a_opt.has_value() && b_opt.has_value()) {
-      }
-      switch (ctx->op->getType()) {
-      case PlanParser::EQ:
-        return createValueExpr<bool>(a_opt.value() == b_opt.value());
-      case PlanParser::NE:
-        return createValueExpr<bool>(a_opt.value() != b_opt.value());
-      default:
-        assert(false);
-      }
+      PROCESS_EQALITY(bool, bool);
+      PROCESS_EQALITY(std::string, std::string);
+      PROCESS_EQALITY(double, double);
+      PROCESS_EQALITY(int32_t, int32_t);
+      PROCESS_EQALITY(int64_t, int64_t);
+      PROCESS_EQALITY(double, int32_t);
+      PROCESS_EQALITY(int32_t, double);
+      PROCESS_EQALITY(float, float);
+      PROCESS_EQALITY(int32_t, float);
+      PROCESS_EQALITY(float, int32_t);
+      PROCESS_EQALITY(float, double);
+      PROCESS_EQALITY(double, float);
     }
 
     proto::plan::OpType op;
@@ -575,39 +475,53 @@ public:
       op = proto::plan::OpType::NotEqual;
     }
 
-    if (a.expr->has_value_expr() && !b.expr->has_value_expr()) {
+    if (left_expr_with_type.expr->has_value_expr() &&
+        !right_expr_with_type.expr->has_value_expr()) {
       ExprWithDtype left = toValueExpr(
-          new proto::plan::GenericValue(a.expr->value_expr().value()));
-      ExprWithDtype right = b;
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              this->arena.get(),
+              left_expr_with_type.expr->value_expr().value()),
+          this->arena.get());
+      ExprWithDtype right = right_expr_with_type;
 
-      return ExprWithDtype(HandleCompare(op, left, right),
+      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
                            proto::schema::DataType::Bool, false);
     }
 
-    if (!a.expr->has_value_expr() && b.expr->has_value_expr()) {
+    if (!left_expr_with_type.expr->has_value_expr() &&
+        right_expr_with_type.expr->has_value_expr()) {
 
-      ExprWithDtype left = a;
+      ExprWithDtype left = left_expr_with_type;
       ExprWithDtype right = toValueExpr(
-          new proto::plan::GenericValue(b.expr->value_expr().value()));
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              this->arena.get(),
+              right_expr_with_type.expr->value_expr().value()));
 
-      return ExprWithDtype(HandleCompare(op, left, right),
+      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
                            proto::schema::DataType::Bool, false);
     }
 
-    if (a.expr->has_value_expr() && b.expr->has_value_expr()) {
-
+    if (left_expr_with_type.expr->has_value_expr() &&
+        right_expr_with_type.expr->has_value_expr()) {
       ExprWithDtype left = toValueExpr(
-          new proto::plan::GenericValue(a.expr->value_expr().value()));
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              this->arena.get(),
+              left_expr_with_type.expr->value_expr().value()));
       ExprWithDtype right = toValueExpr(
-          new proto::plan::GenericValue(b.expr->value_expr().value()));
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              this->arena.get(),
+              right_expr_with_type.expr->value_expr().value()));
 
-      return ExprWithDtype(HandleCompare(op, left, right),
+      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
                            proto::schema::DataType::Bool, false);
     }
 
-    if (!a.expr->has_value_expr() && !b.expr->has_value_expr()) {
+    if (!left_expr_with_type.expr->has_value_expr() &&
+        !right_expr_with_type.expr->has_value_expr()) {
 
-      return ExprWithDtype(HandleCompare(op, a, b),
+      return ExprWithDtype(HandleCompare(op, left_expr_with_type,
+                                         right_expr_with_type,
+                                         this->arena.get()),
                            proto::schema::DataType::Bool, false);
     }
   }
@@ -618,14 +532,16 @@ public:
     if (identifier) {
 
       auto text = identifier->getText();
-      auto &field = helper->GetFieldFromNameDefaultJSON(text);
+      auto field = helper->GetFieldFromNameDefaultJSON(text);
       std::vector<std::string> nested_path;
       if (field.name() != text) {
         nested_path.push_back(text);
       }
       assert(!(field.data_type() == proto::schema::DataType::JSON &&
                nested_path.empty()));
-      auto info = new proto::plan::ColumnInfo();
+      auto info =
+          google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+              this->arena.get());
       info->set_field_id(field.fieldid());
       info->set_data_type(field.data_type());
       info->set_is_primary_key(field.is_primary_key());
@@ -636,6 +552,32 @@ public:
       info->set_element_type(field.element_type());
       return info;
     }
+
+    auto childtext = child->getText();
+    std::string fieldname = childtext.substr(0, childtext.find("[", 0));
+
+    std::vector<std::string> nestedpath;
+    auto field = helper->GetFieldFromNameDefaultJSON(fieldname);
+    assert(field.data_type() == proto::schema::DataType::JSON ||
+           field.data_type() == proto::schema::DataType::Array);
+    if (fieldname != field.name())
+      nestedpath.push_back(fieldname);
+    auto jsonkey = childtext.substr(fieldname.length(),
+                                    childtext.length() - fieldname.length());
+    auto ss = tokenize(jsonkey, "][");
+    for (size_t i = 0; i < ss.size(); ++i) {
+      std::string path_ = ss[i];
+      if (path_[0] == '[')
+        path_ = path_.substr(1, path_.length() - 1);
+      if (path_[path_.length() - 1] == ']')
+        path_ = ss[i].substr(0, path_.length() - 1);
+      assert(path_ != "");
+
+      if ((path_[0] == '\"' && path_[path_.length() - 1] == '\"') ||
+          (path_[0] == '"' && path_[path_.length() - 1] == '"')) {
+      }
+    }
+
     return nullptr;
   }
 
@@ -1137,52 +1079,72 @@ public:
 
   virtual std::any visitTerm(PlanParser::TermContext *ctx) override {
     auto first = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-    auto info = first.expr->column_expr().info();
+    auto info = first.expr->unsafe_arena_release_column_expr()
+                    ->unsafe_arena_release_info();
 
-    auto expr = new proto::plan::Expr();
-    auto col_expr = new proto::plan::ColumnExpr();
-    auto term_expr = new proto::plan::TermExpr();
-    for (auto &&elem : ctx->expr()) {
+    auto term_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::TermExpr>(
+            arena.get());
+    for (size_t i = 1; i < ctx->expr().size(); ++i) {
+      auto elem = ctx->expr()[i];
       auto expr_ = std::any_cast<ExprWithDtype>(elem->accept(this)).expr;
-      auto v = term_expr->add_values();
+      auto v =
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              arena.get());
       if (extractValue<int8_t>(expr_).has_value()) {
         v->set_int64_val(int64_t(extractValue<int8_t>(expr_).value()));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
         continue;
       }
       if (extractValue<int16_t>(expr_).has_value()) {
         v->set_int64_val(int64_t(extractValue<int16_t>(expr_).value()));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+
         continue;
       }
       if (extractValue<int32_t>(expr_).has_value()) {
         v->set_int64_val(int64_t(extractValue<int32_t>(expr_).value()));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+
         continue;
       }
       if (extractValue<int64_t>(expr_).has_value()) {
         v->set_int64_val(extractValue<int64_t>(expr_).value());
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+
         continue;
       }
       if (extractValue<float>(expr_).has_value()) {
         v->set_float_val(double(extractValue<float>(expr_).value()));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+
         continue;
       }
       if (extractValue<double>(expr_).has_value()) {
         v->set_int64_val(double(extractValue<double>(expr_).value()));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+
         continue;
       }
       assert(false);
     }
-    expr->set_allocated_term_expr(term_expr);
-    col_expr->set_allocated_info(new proto::plan::ColumnInfo(info));
-    expr->set_allocated_column_expr(col_expr);
-    expr->set_allocated_term_expr(term_expr);
+    auto expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena.get());
+
+    term_expr->unsafe_arena_set_allocated_column_info(info);
+    expr->unsafe_arena_set_allocated_term_expr(term_expr);
     if (ctx->op->getType() == PlanParser::NIN) {
-      auto root_expr = new proto::plan::Expr();
-      auto unary_expr = new proto::plan::UnaryExpr();
+      auto root_expr =
+          google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+              arena.get());
+      auto unary_expr =
+          google::protobuf::Arena::CreateMessage<proto::plan::UnaryExpr>(
+              arena.get());
       unary_expr->set_op(proto::plan::UnaryExpr_UnaryOp_Not);
       unary_expr->set_allocated_child(expr);
       return ExprWithDtype(root_expr, proto::schema::DataType::Bool, false);
     }
-
+    std::cout << expr->DebugString() << std::endl;
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
   }
 
@@ -1661,8 +1623,12 @@ public:
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
   }
 
+  PlanCCVisitor(SchemaHelper *const helper)
+      : helper(helper), arena(std::make_shared<google::protobuf::Arena>()) {}
+
 private:
   SchemaHelper *helper;
+  std::shared_ptr<google::protobuf::Arena> arena;
 };
 
 } // namespace milvus
@@ -1676,8 +1642,26 @@ int main(int, const char *argv[]) {
   PlanParser parser(&tokens);
 
   PlanParser::ExprContext *tree = parser.expr();
-  milvus::PlanCCVisitor visitor;
-  visitor.visit(tree);
 
+  milvus::proto::schema::CollectionSchema schema;
+  auto field = schema.add_fields();
+  field->set_name("x");
+  field->set_fieldid(100);
+  field->set_data_type(milvus::proto::schema::DataType::Int64);
+
+  field = schema.add_fields();
+  field->set_name("v");
+  field->set_fieldid(101);
+  field->set_data_type(milvus::proto::schema::DataType::FloatVector);
+  auto kv = field->add_type_params();
+  kv->set_key("dim");
+  kv->set_value("128");
+
+  auto helper = milvus::CreateSchemaHelper(&schema);
+
+  milvus::PlanCCVisitor visitor(&helper);
+  auto res = std::any_cast<milvus::ExprWithDtype>(visitor.visit(tree));
+
+  std::cout << res.expr->DebugString() << std::endl;
   return 0;
 }

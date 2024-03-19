@@ -17,42 +17,41 @@ struct ExprWithDtype {
       : expr(expr), dtype(dtype), dependent(dependent) {}
 };
 
-template <typename T> std::optional<T> extractValue(proto::plan::Expr *expr) {
+std::any extractValue(proto::plan::Expr *expr) {
+
   if (!expr->has_value_expr())
-    return std::nullopt;
+    return nullptr;
 
-  if constexpr (std::is_same_v<T, std::int64_t>) {
-    if (expr->value_expr().has_value() &&
-        expr->value_expr().value().has_int64_val())
-      return expr->value_expr().value().int64_val();
-  }
-  if constexpr (std::is_same_v<T, double>) {
-    if (expr->value_expr().has_value() &&
-        expr->value_expr().value().has_float_val())
-      return expr->value_expr().value().float_val();
-  }
+  if (!expr->value_expr().has_value())
+    return nullptr;
+  if (expr->value_expr().value().has_bool_val())
+    return expr->value_expr().value().bool_val();
+  if (expr->value_expr().value().has_float_val())
+    return expr->value_expr().value().float_val();
+  if (expr->value_expr().value().has_string_val())
+    return expr->value_expr().value().string_val();
+  if (expr->value_expr().value().has_int64_val())
+    return expr->value_expr().value().int64_val();
 
-  if constexpr (std::is_same_v<T, std::string>) {
-    if (expr->value_expr().has_value() &&
-        expr->value_expr().value().has_string_val())
-      return expr->value_expr().value().string_val();
-  }
-  if constexpr (std::is_same_v<T, bool>) {
-    if (expr->value_expr().has_value() &&
-        expr->value_expr().value().has_bool_val())
-      return expr->value_expr().value().bool_val();
-  }
+  return nullptr;
+}
 
-  return std::nullopt;
-};
-
-template <typename T> proto::plan::Expr *createValueExpr(const T val) {
-  auto expr = new proto::plan::Expr();
-  auto val_expr = new proto::plan::ValueExpr();
-
-  auto value = new proto::plan::GenericValue();
+template <typename T>
+proto::plan::Expr *createValueExpr(const T val,
+                                   google::protobuf::Arena *arena = nullptr) {
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto val_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
+  auto value =
+      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(arena);
   if constexpr (std::is_same_v<T, int64_t>)
     value->set_int64_val(val);
+  else if constexpr (std::is_same_v<T, int8_t>)
+    value->set_int64_val(int64_t(val));
+  else if constexpr (std::is_same_v<T, int32_t>)
+    value->set_int64_val(int64_t(val));
+  else if constexpr (std::is_same_v<T, int16_t>)
+    value->set_int64_val(int16_t(val));
   else if constexpr (std::is_same_v<T, std::string>)
     value->set_string_val(val);
   else if constexpr (std::is_same_v<T, double> || std::is_same_v<T, float>)
@@ -62,32 +61,51 @@ template <typename T> proto::plan::Expr *createValueExpr(const T val) {
   else
     static_assert(false);
 
-  val_expr->set_allocated_value(value);
-  expr->set_allocated_value_expr(val_expr);
+  val_expr->unsafe_arena_set_allocated_value(value);
+  expr->unsafe_arena_set_allocated_value_expr(val_expr);
   return expr;
+}
+
+std::vector<std::string> tokenize(std::string s, std::string del = " ") {
+
+  std::vector<std::string> results;
+  int start, end = -1 * del.size();
+  do {
+    start = end + del.size();
+    end = s.find(del, start);
+    results.push_back(s.substr(start, end - start));
+  } while (end != -1);
+  return results;
 }
 
 template <proto::plan::BinaryExpr_BinaryOp T>
 proto::plan::Expr *createBinExpr(proto::plan::Expr *left,
-                                 proto::plan::Expr *right) {
+                                 proto::plan::Expr *right,
+                                 google::protobuf::Arena *arena = nullptr) {
 
-  auto expr = new proto::plan::Expr();
-  auto bin_expr = new proto::plan::BinaryExpr();
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto bin_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::BinaryExpr>(arena);
   bin_expr->set_op(T);
-  bin_expr->set_allocated_left(left);
-  bin_expr->set_allocated_right(right);
+  bin_expr->unsafe_arena_set_allocated_left(left);
+  bin_expr->unsafe_arena_set_allocated_right(right);
+  expr->unsafe_arena_set_allocated_binary_expr(bin_expr);
+
   return expr;
 }
 
 template <proto::plan::ArithOpType T>
-proto::plan::Expr *createBinArithExpr(proto::plan::Expr *left,
-                                      proto::plan::Expr *right) {
+proto::plan::Expr *
+createBinArithExpr(proto::plan::Expr *left, proto::plan::Expr *right,
+                   google::protobuf::Arena *arena = nullptr) {
 
-  auto expr = new proto::plan::Expr();
-  auto bin_expr = new proto::plan::BinaryArithExpr();
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto bin_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::BinaryArithExpr>(
+          arena);
   bin_expr->set_op(T);
-  bin_expr->set_allocated_left(left);
-  bin_expr->set_allocated_right(right);
+  bin_expr->unsafe_arena_set_allocated_left(left);
+  bin_expr->unsafe_arena_set_allocated_right(right);
   return expr;
 }
 
@@ -254,7 +272,6 @@ struct SchemaHelper {
 };
 
 SchemaHelper CreateSchemaHelper(proto::schema::CollectionSchema *schema) {
-
   assert(schema);
   SchemaHelper schema_helper;
   schema_helper.schema = schema;
@@ -277,12 +294,102 @@ SchemaHelper CreateSchemaHelper(proto::schema::CollectionSchema *schema) {
   return schema_helper;
 }
 
-std::string convertEscapeSingle(const std::string &str) { return str; }
+std::string convertEscapeSingle(const std::string &in) {
+
+  std::vector<size_t> need_replace_index;
+  size_t escape_ch_count = 0;
+  size_t in_string_lenth = in.length();
+  for (size_t i = 1; i < in_string_lenth - 1; ++i) {
+    if (in[i] == '\\') {
+      escape_ch_count++;
+      continue;
+    }
+    if (in[i] == '"' && escape_ch_count % 2 == 0) {
+      need_replace_index.push_back(i);
+    }
+
+    if (in[i] == '\'' && escape_ch_count % 2 != 0) {
+      need_replace_index.push_back(i);
+    }
+
+    escape_ch_count = 0;
+  }
+
+  std::string in_;
+  in_ += '"';
+  size_t start = 1;
+  for (auto end : need_replace_index) {
+    if (in[end] == '"') {
+      in_ += in.substr(start, end - start);
+      in_ += "\\\"";
+    } else {
+      in_ += in.substr(start, end - start - 1);
+      in_ += '\'';
+    }
+    start = end + 1;
+  }
+
+  in_ += in.substr(start, in.length() - start - 1);
+
+  in_ += '"';
+  std::stringstream ss;
+  ss << in_;
+  std::string out;
+  ss >> std::quoted(out);
+
+  return out;
+}
+
+bool hasWildcards(std::string pattern) {
+  size_t l = pattern.length();
+  size_t i = l - 1;
+  for (; i >= 0; i--) {
+    if (pattern[i] == '%') {
+      if (i > 0 && pattern[i - 1] == '\\') {
+        i--;
+        continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+int findLastNotOfWildcards(std::string pattern) {
+  int loc = pattern.length() - 1;
+  for (; loc >= 0; loc--) {
+    if (pattern[loc] == '%') {
+      if (loc > 0 && pattern[loc - 1] == '\\') {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  return loc;
+}
 
 std::pair<proto::plan::OpType, std::string>
 translatePatternMatch(const std::string &pattern) {
 
-  return std::make_pair(proto::plan::OpType::PrefixMatch, pattern);
+  size_t l = pattern.length();
+  size_t loc = findLastNotOfWildcards(pattern);
+  if (loc < 0) {
+    return std::make_pair(proto::plan::OpType::PrefixMatch, "");
+  }
+  bool exist = hasWildcards(pattern.substr(0, loc + 1));
+
+  if (loc >= l - 1 && !exist) {
+    return std::make_pair(proto::plan::OpType::Equal, pattern);
+  }
+
+  if (!exist) {
+
+    return std::make_pair(proto::plan::OpType::PrefixMatch,
+                          pattern.substr(0, loc + 1));
+  }
+
+  assert(false);
 }
 
 bool canBeComparedDataType(proto::schema::DataType a,
@@ -337,10 +444,13 @@ bool canBeCompared(ExprWithDtype a, ExprWithDtype b) {
   return canBeComparedDataType(b.dtype, getArrayElementType(b.expr));
 }
 
-ExprWithDtype toValueExpr(proto::plan::GenericValue *value) {
-  auto expr = new proto::plan::Expr();
-  auto value_expr = new proto::plan::ValueExpr();
-  value_expr->set_allocated_value(value);
+ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
+                          google::protobuf::Arena *arena = nullptr) {
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+
+  auto value_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
+  value_expr->unsafe_arena_set_allocated_value(value);
 
   if (value->has_bool_val()) {
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
@@ -361,7 +471,8 @@ ExprWithDtype toValueExpr(proto::plan::GenericValue *value) {
 }
 
 proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
-                                 ExprWithDtype b) {
+                                 ExprWithDtype b,
+                                 google::protobuf::Arena *arena) {
   if (!a.expr->has_column_expr() || !b.expr->has_column_expr())
     assert(false);
 
@@ -369,12 +480,15 @@ proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
 
   auto b_info = b.expr->column_expr().info();
 
-  auto expr = new proto::plan::Expr();
-  auto compare_expr = new proto::plan::CompareExpr();
-  compare_expr->set_allocated_left_column_info(
-      new proto::plan::ColumnInfo(a_info));
-  compare_expr->set_allocated_right_column_info(
-      new proto::plan::ColumnInfo(b_info));
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto compare_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::CompareExpr>(arena);
+  compare_expr->unsafe_arena_set_allocated_left_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      a_info));
+  compare_expr->unsafe_arena_set_allocated_right_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      b_info));
   compare_expr->set_op(op);
 
   return expr;
