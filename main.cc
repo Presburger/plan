@@ -938,8 +938,8 @@ public:
       ExprWithDtype left = toValueExpr(
           google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
               this->arena.get(),
-              left_expr_with_type.expr->value_expr().value()))
-          ExprWithDtype right = right_expr_with_type;
+              left_expr_with_type.expr->value_expr().value()));
+      ExprWithDtype right = right_expr_with_type;
 
       return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
                            proto::schema::DataType::Bool, false);
@@ -1311,80 +1311,106 @@ public:
           continue;
         }
       }
-
-      auto generic_value =
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get());
-
-      generic_value -
-          return ExprWithDtype(
-              expr, is_same ? dtype : proto::schema::DataType::None, true);
     }
 
-    virtual std::any visitJSONContainsAny(PlanParser::JSONContainsAnyContext *
-                                          ctx) override {
+    auto generic_value =
+        google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+            this->arena.get());
 
-      auto field = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
-      auto info = field.expr->column_expr().info();
-      assert(info.data_type() == proto::schema::DataType::Array ||
-             info.data_type() == proto::schema::DataType::JSON);
-      auto elem = std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
-      if (info.data_type() == proto::schema::DataType::Array) {
-        proto::plan::GenericValue expr =
-            proto::plan::GenericValue(elem.expr->value_expr().value());
-        assert(canBeCompared(field, toValueExpr(&expr)));
-      }
+    generic_value->unsafe_arena_set_allocated_array_val(array_expr);
 
-      auto expr = new proto::plan::Expr();
-      auto json_contain_expr = new proto::plan::JSONContainsExpr();
-      auto value = json_contain_expr->add_elements();
-      value->set_allocated_array_val(
-          new proto::plan::Array(elem.expr->value_expr().value().array_val()));
-      json_contain_expr->set_elements_same_type(
-          elem.expr->value_expr().value().array_val().same_type());
-      json_contain_expr->set_allocated_column_info(
-          new proto::plan::ColumnInfo(info));
-      json_contain_expr->set_op(
-          proto::plan::JSONContainsExpr_JSONOp_ContainsAny);
-      expr->set_allocated_json_contains_expr(json_contain_expr);
-      return ExprWithDtype(expr, proto::schema::Bool, false);
+    auto value_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(
+            this->arena.get());
+    value_expr->unsafe_arena_set_allocated_value(generic_value);
+    expr->unsafe_arena_set_allocated_value_expr(value_expr);
+    return ExprWithDtype(expr, is_same ? dtype : proto::schema::DataType::None,
+                         true);
+  }
+  virtual std::any
+  visitJSONContainsAny(PlanParser::JSONContainsAnyContext *ctx) override {
+
+    auto field = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
+    auto info = field.expr->column_expr().info();
+    assert(info.data_type() == proto::schema::DataType::Array ||
+           info.data_type() == proto::schema::DataType::JSON);
+    auto elem = std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
+    if (info.data_type() == proto::schema::DataType::Array) {
+      proto::plan::GenericValue expr =
+          proto::plan::GenericValue(elem.expr->value_expr().value());
+      assert(canBeCompared(field, toValueExpr(&expr)));
     }
 
-    virtual std::any visitExists(PlanParser::ExistsContext * ctx) override {
-      auto a = std::any_cast<ExprWithDtype>(ctx->expr());
-      auto info = a.expr->column_expr().info();
-      assert(info.data_type() == proto::schema::DataType::Array);
-      auto expr = new proto::plan::Expr();
-      auto col_expr = new proto::plan::ColumnExpr();
-      col_expr->set_allocated_info(new proto::plan::ColumnInfo(info));
-      expr->set_allocated_column_expr(col_expr);
-      return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-    }
+    auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+        this->arena.get());
+    auto json_contain_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::JSONContainsExpr>(
+            this->arena.get());
 
-    virtual std::any visitEmptyTerm(PlanParser::EmptyTermContext * ctx)
-        override {
+    auto value = json_contain_expr->add_elements();
+    value->unsafe_arena_set_allocated_array_val(
+        google::protobuf::Arena::CreateMessage<proto::plan::Array>(
+            this->arena.get(), elem.expr->value_expr().value().array_val()));
 
-      auto first = std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
-      auto info = first.expr->column_expr().info();
+    json_contain_expr->set_elements_same_type(
+        elem.expr->value_expr().value().array_val().same_type());
+    json_contain_expr->unsafe_arena_set_allocated_column_info(
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+            this->arena.get(), info));
+    json_contain_expr->set_op(proto::plan::JSONContainsExpr_JSONOp_ContainsAny);
+    expr->unsafe_arena_set_allocated_json_contains_expr(json_contain_expr);
+    return ExprWithDtype(expr, proto::schema::Bool, false);
+  }
 
-      auto expr = new proto::plan::Expr();
-      auto col_expr = new proto::plan::ColumnExpr();
-      auto term_expr = new proto::plan::TermExpr();
-      expr->set_allocated_term_expr(term_expr);
-      col_expr->set_allocated_info(new proto::plan::ColumnInfo(info));
-      expr->set_allocated_column_expr(col_expr);
-      expr->set_allocated_term_expr(term_expr);
-      return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-    }
+  virtual std::any visitExists(PlanParser::ExistsContext *ctx) override {
+    auto a = std::any_cast<ExprWithDtype>(ctx->expr());
+    auto info = a.expr->column_expr().info();
+    assert(info.data_type() == proto::schema::DataType::Array);
+    auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+        this->arena.get());
 
-    PlanCCVisitor(SchemaHelper *const helper)
-        : helper(helper), arena(std::make_shared<google::protobuf::Arena>()) {}
+    auto col_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnExpr>(
+            this->arena.get());
+    col_expr->unsafe_arena_set_allocated_info(
+        new proto::plan::ColumnInfo(info));
+    col_expr->unsafe_arena_set_allocated_info(
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+            this->arena.get(), info));
+    expr->unsafe_arena_set_allocated_column_expr(col_expr);
+    return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
+  }
 
-  private:
-    SchemaHelper *helper;
-    std::shared_ptr<google::protobuf::Arena> arena;
-  };
-}
+  virtual std::any visitEmptyTerm(PlanParser::EmptyTermContext *ctx) override {
+
+    auto first = std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
+    auto info = first.expr->column_expr().info();
+
+    auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+        this->arena.get());
+    auto col_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnExpr>(
+            this->arena.get());
+    auto term_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::TermExpr>(
+            this->arena.get());
+
+    expr->unsafe_arena_set_allocated_term_expr(term_expr);
+    col_expr->unsafe_arena_set_allocated_info(
+        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+            this->arena.get(), info));
+    expr->unsafe_arena_set_allocated_column_expr(col_expr);
+    expr->unsafe_arena_set_allocated_term_expr(term_expr);
+    return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
+  }
+
+  PlanCCVisitor(SchemaHelper *const helper)
+      : helper(helper), arena(std::make_shared<google::protobuf::Arena>()) {}
+
+private:
+  SchemaHelper *helper;
+  std::shared_ptr<google::protobuf::Arena> arena;
+};
 } // namespace milvus
 
 int main(int, const char *argv[]) {
