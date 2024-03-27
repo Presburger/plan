@@ -241,20 +241,23 @@ public:
           right_value.type() == typeid(int64_t)) {
         switch (ctx->op->getType()) {
         case PlanParser::MUL:
-          return createValueExpr<int64_t>(
-              std::any_cast<int64_t>(left_value) *
-                  std::any_cast<int64_t>(right_value),
-              this->arena.get());
+          return ExprWithDtype(
+              createValueExpr<int64_t>(std::any_cast<int64_t>(left_value) *
+                                           std::any_cast<int64_t>(right_value),
+                                       this->arena.get()),
+              proto::schema::DataType::Int64, false);
         case PlanParser::DIV:
-          return createValueExpr<int64_t>(
-              std::any_cast<int64_t>(left_value) /
-                  std::any_cast<int64_t>(right_value),
-              this->arena.get());
+          return ExprWithDtype(
+              createValueExpr<int64_t>(std::any_cast<int64_t>(left_value) /
+                                           std::any_cast<int64_t>(right_value),
+                                       this->arena.get()),
+              proto::schema::DataType::Int64, false);
         case PlanParser::MOD:
-          return createValueExpr<int64_t>(
-              std::any_cast<int64_t>(left_value) %
-                  std::any_cast<int64_t>(right_value),
-              this->arena.get());
+          return ExprWithDtype(
+              createValueExpr<int64_t>(std::any_cast<int64_t>(left_value) %
+                                           std::any_cast<int64_t>(right_value),
+                                       this->arena.get()),
+              proto::schema::DataType::Int64, false);
         default:
           assert(false);
         }
@@ -264,15 +267,17 @@ public:
           right_value.type() == typeid(int64_t)) {
         switch (ctx->op->getType()) {
         case PlanParser::MUL:
-          return createValueExpr<double>(
-              std::any_cast<double>(left_value) *
-                  std::any_cast<int64_t>(right_value),
-              this->arena.get());
+          return ExprWithDtype(
+              createValueExpr<double>(std::any_cast<double>(left_value) *
+                                          std::any_cast<int64_t>(right_value),
+                                      this->arena.get()),
+              proto::schema::DataType::Double, false);
         case PlanParser::DIV:
-          return createValueExpr<double>(
-              std::any_cast<double>(left_value) /
-                  std::any_cast<int64_t>(right_value),
-              this->arena.get());
+          return ExprWithDtype(
+              createValueExpr<double>(std::any_cast<double>(left_value) /
+                                          std::any_cast<int64_t>(right_value),
+                                      this->arena.get()),
+              proto::schema::DataType::Double, false);
         default:
           assert(false);
         }
@@ -283,15 +288,17 @@ public:
 
         switch (ctx->op->getType()) {
         case PlanParser::MUL:
-          return createValueExpr<double>(
-              double(std::any_cast<int64_t>(left_value)) *
-                  std::any_cast<double>(right_value),
-              this->arena.get());
+          return ExprWithDtype(createValueExpr<double>(
+                                   double(std::any_cast<int64_t>(left_value)) *
+                                       std::any_cast<double>(right_value),
+                                   this->arena.get()),
+                               proto::schema::DataType::Double, false);
         case PlanParser::DIV:
-          return createValueExpr<double>(
-              double(std::any_cast<int64_t>(left_value)) *
-                  std::any_cast<double>(right_value),
-              this->arena.get());
+          return ExprWithDtype(createValueExpr<double>(
+                                   double(std::any_cast<int64_t>(left_value)) *
+                                       std::any_cast<double>(right_value),
+                                   this->arena.get()),
+                               proto::schema::DataType::Double, false);
         default:
           assert(false);
         }
@@ -357,6 +364,7 @@ public:
         assert(false);
       }
     }
+    return nullptr;
   }
 
   virtual std::any
@@ -435,19 +443,25 @@ public:
       right_value.type() == typeid(right_type)) {                              \
     switch (ctx->op->getType()) {                                              \
     case PlanParser::EQ:                                                       \
-      return createValueExpr<bool>(std::any_cast<left_type>(left_value) ==     \
-                                       std::any_cast<right_type>(right_value), \
-                                   this->arena.get());                         \
+      return ExprWithDtype(                                                    \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) ==        \
+                                    std::any_cast<right_type>(right_value),    \
+                                this->arena.get()),                            \
+          proto::schema::DataType::Bool, false);                               \
     case PlanParser::NE:                                                       \
-      return createValueExpr<bool>(std::any_cast<left_type>(left_value) !=     \
-                                       std::any_cast<right_type>(right_value), \
-                                   this->arena.get());                         \
+      return ExprWithDtype(                                                    \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) !=        \
+                                    std::any_cast<right_type>(right_value),    \
+                                this->arena.get()),                            \
+          proto::schema::DataType::Bool, false);                               \
     }                                                                          \
   }
 
       PROCESS_EQALITY(bool, bool);
       PROCESS_EQALITY(std::string, std::string);
       PROCESS_EQALITY(double, double);
+      PROCESS_EQALITY(double, int64_t);
+      PROCESS_EQALITY(int64_t, double);
       PROCESS_EQALITY(int32_t, int32_t);
       PROCESS_EQALITY(int64_t, int64_t);
       PROCESS_EQALITY(double, int32_t);
@@ -459,22 +473,6 @@ public:
       PROCESS_EQALITY(double, float);
     }
 
-    proto::plan::OpType op;
-    switch (ctx->op->getType()) {
-    case PlanParser::LT:
-      op = proto::plan::OpType::LessThan;
-    case PlanParser::LE:
-      op = proto::plan::OpType::LessEqual;
-    case PlanParser::GT:
-      op = proto::plan::OpType::GreaterThan;
-    case PlanParser::GE:
-      op = proto::plan::OpType::GreaterEqual;
-    case PlanParser::EQ:
-      op = proto::plan::OpType::Equal;
-    case PlanParser::NE:
-      op = proto::plan::OpType::NotEqual;
-    }
-
     if (left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
       ExprWithDtype left = toValueExpr(
@@ -484,8 +482,9 @@ public:
           this->arena.get());
       ExprWithDtype right = right_expr_with_type;
 
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left, right, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
 
     if (!left_expr_with_type.expr->has_value_expr() &&
@@ -497,33 +496,21 @@ public:
               this->arena.get(),
               right_expr_with_type.expr->value_expr().value()));
 
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
-    }
-
-    if (left_expr_with_type.expr->has_value_expr() &&
-        right_expr_with_type.expr->has_value_expr()) {
-      ExprWithDtype left = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get(),
-              left_expr_with_type.expr->value_expr().value()));
-      ExprWithDtype right = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get(),
-              right_expr_with_type.expr->value_expr().value()));
-
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left, right, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
 
     if (!left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
 
-      return ExprWithDtype(HandleCompare(op, left_expr_with_type,
-                                         right_expr_with_type,
-                                         this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left_expr_with_type,
+                        right_expr_with_type, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
+
+    return nullptr;
   }
 
   proto::plan::ColumnInfo *
@@ -592,6 +579,7 @@ public:
       info->set_nested_path(i, nested_path[i]);
     info->set_is_primary_key(field.is_primary_key());
     info->set_element_type(field.element_type());
+    return info;
   }
 
   virtual std::any
@@ -780,7 +768,7 @@ public:
 
 #define PROCESS_ADDSUB(left_type, right_type, target_type, datatype)           \
   if (left_value.type() == typeid(left_type) &&                                \
-      right_value.type() == typeid(right_value)) {                             \
+      right_value.type() == typeid(right_type)) {                              \
     switch (ctx->op->getType()) {                                              \
     case PlanParser::ADD:                                                      \
       return ExprWithDtype(createValueExpr<target_type>(                       \
@@ -867,44 +855,42 @@ public:
 
   virtual std::any
   visitRelational(PlanParser::RelationalContext *ctx) override {
+    std::cout << ctx->getText() << std::endl;
     auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
     auto right_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
-    auto left_expr = left_expr_with_type.expr;
-    auto right_expr = right_expr_with_type.expr;
     auto left_value = extractValue(left_expr_with_type.expr);
     auto right_value = extractValue(right_expr_with_type.expr);
     if (left_value.has_value() && right_value.has_value()) {
 
 #define PROCESS_RELATIONAL(left_type, right_type)                              \
-  \ 
-      if (left_value.type() == typeid(left_type) &&                            \
-          right_value.type() == typeid(right_type)) {                          \
+  if (left_value.type() == typeid(left_type) &&                                \
+      right_value.type() == typeid(right_type)) {                              \
                                                                                \
     switch (ctx->op->getType()) {                                              \
     case PlanParser::LT:                                                       \
       return ExprWithDtype(                                                    \
-          createValueExpr<bool>(std::any_cast<left_type>(a) <                  \
-                                    std::any_cast<right_type>(b),              \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) <         \
+                                    std::any_cast<right_type>(right_value),    \
                                 this->arena.get()),                            \
           proto::schema::DataType::Bool, false);                               \
     case PlanParser::LE:                                                       \
       return ExprWithDtype(                                                    \
-          createValueExpr<bool>(std::any_cast<left_type>(a) <=                 \
-                                    std::any_cast<right_type>(b),              \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) <=        \
+                                    std::any_cast<right_type>(right_value),    \
                                 this->arena.get()),                            \
           proto::schema::DataType::Bool, false);                               \
     case PlanParser::GT:                                                       \
       return ExprWithDtype(                                                    \
-          createValueExpr<bool>(std::any_cast<left_type>(a) >                  \
-                                    std::any_cast<right_type>(b),              \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) >         \
+                                    std::any_cast<right_type>(right_value),    \
                                 this->arena.get()),                            \
           proto::schema::DataType::Bool, false);                               \
     case PlanParser::GE:                                                       \
       return ExprWithDtype(                                                    \
-          createValueExpr<bool>(std::any_cast<left_type>(a) >=                 \
-                                    std::any_cast<right_type>(b),              \
+          createValueExpr<bool>(std::any_cast<left_type>(left_value) >=        \
+                                    std::any_cast<right_type>(right_value),    \
                                 this->arena.get()),                            \
           proto::schema::DataType::Bool, false);                               \
     default:                                                                   \
@@ -912,25 +898,12 @@ public:
     }                                                                          \
   }
 
-      PROCESS_EQALITY(double, double)
-      PROCESS_EQALITY(double, int64_t)
-      PROCESS_EQALITY(int64_t, double)
-    }
-
-    proto::plan::OpType op;
-    switch (ctx->op->getType()) {
-    case PlanParser::LT:
-      op = proto::plan::OpType::LessThan;
-    case PlanParser::LE:
-      op = proto::plan::OpType::LessEqual;
-    case PlanParser::GT:
-      op = proto::plan::OpType::GreaterThan;
-    case PlanParser::GE:
-      op = proto::plan::OpType::GreaterEqual;
-    case PlanParser::EQ:
-      op = proto::plan::OpType::Equal;
-    case PlanParser::NE:
-      op = proto::plan::OpType::NotEqual;
+      PROCESS_RELATIONAL(double, double)
+      PROCESS_RELATIONAL(double, int64_t)
+      PROCESS_RELATIONAL(int64_t, double)
+      PROCESS_RELATIONAL(std::string, std::string)
+      PROCESS_RELATIONAL(int64_t, int64_t)
+      PROCESS_RELATIONAL(int32_t, int32_t)
     }
 
     if (left_expr_with_type.expr->has_value_expr() &&
@@ -941,8 +914,9 @@ public:
               left_expr_with_type.expr->value_expr().value()));
       ExprWithDtype right = right_expr_with_type;
 
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left, right, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
 
     if (!left_expr_with_type.expr->has_value_expr() &&
@@ -952,33 +926,18 @@ public:
           google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
               this->arena.get()));
 
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
-    }
-
-    if (left_expr_with_type.expr->has_value_expr() &&
-        right_expr_with_type.expr->has_value_expr()) {
-
-      ExprWithDtype left = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get(),
-              left_expr_with_type.expr->value_expr().value()));
-      ExprWithDtype right = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get(),
-              right_expr_with_type.expr->value_expr().value()));
-
-      return ExprWithDtype(HandleCompare(op, left, right, this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left, right, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
 
     if (!left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
 
-      return ExprWithDtype(HandleCompare(op, left_expr_with_type,
-                                         right_expr_with_type,
-                                         this->arena.get()),
-                           proto::schema::DataType::Bool, false);
+      return ExprWithDtype(
+          HandleCompare(ctx->op->getType(), left_expr_with_type,
+                        right_expr_with_type, this->arena.get()),
+          proto::schema::DataType::Bool, false);
     }
     return nullptr;
   }
@@ -1050,6 +1009,18 @@ public:
 
       if (value.type() == typeid(float)) {
         v->set_float_val(double(std::any_cast<float>(value)));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+        continue;
+      }
+
+      if (value.type() == typeid(bool)) {
+        v->set_bool_val(std::any_cast<bool>(value));
+        term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
+        continue;
+      }
+
+      if (value.type() == typeid(std::string)) {
+        v->set_string_val(std::any_cast<std::string>(value));
         term_expr->mutable_values()->UnsafeArenaAddAllocated(v);
         continue;
       }
@@ -1170,7 +1141,6 @@ public:
   }
 
   virtual std::any visitUnary(PlanParser::UnaryContext *ctx) override {
-
     auto expr_with_dtype =
         std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
     auto value = extractValue(expr_with_dtype.expr);
@@ -1201,6 +1171,7 @@ public:
       PROCESS_UNARY(int8_t, proto::schema::DataType::Int64);
       PROCESS_UNARY(int32_t, proto::schema::DataType::Int64);
       PROCESS_UNARY(int64_t, proto::schema::DataType::Int64);
+      PROCESS_UNARY(bool, proto::schema::DataType::Bool);
     }
 
     assert(checkDirectComparisonBinaryField(
@@ -1413,35 +1384,156 @@ private:
 };
 } // namespace milvus
 
-int main(int, const char *argv[]) {
+void check_expr(const std::string &exprstr, milvus::SchemaHelper &helper) {
 
-  std::string exprstr(argv[1]);
   antlr4::ANTLRInputStream input(exprstr);
   PlanLexer lexer(&input);
   antlr4::CommonTokenStream tokens(&lexer);
   PlanParser parser(&tokens);
-
   PlanParser::ExprContext *tree = parser.expr();
-
-  milvus::proto::schema::CollectionSchema schema;
-  auto field = schema.add_fields();
-  field->set_name("x");
-  field->set_fieldid(100);
-  field->set_data_type(milvus::proto::schema::DataType::Int64);
-
-  field = schema.add_fields();
-  field->set_name("v");
-  field->set_fieldid(101);
-  field->set_data_type(milvus::proto::schema::DataType::FloatVector);
-  auto kv = field->add_type_params();
-  kv->set_key("dim");
-  kv->set_value("128");
-
-  auto helper = milvus::CreateSchemaHelper(&schema);
-
   milvus::PlanCCVisitor visitor(&helper);
   auto res = std::any_cast<milvus::ExprWithDtype>(visitor.visit(tree));
+  std::cout << exprstr << "\t" << res.expr->DebugString() << std::endl;
+}
 
-  std::cout << res.expr->DebugString() << std::endl;
+int main() {
+
+  milvus::proto::schema::CollectionSchema schema;
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_int64");
+    field->set_fieldid(100);
+    field->set_data_type(milvus::proto::schema::DataType::Int64);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_int32");
+    field->set_fieldid(101);
+    field->set_data_type(milvus::proto::schema::DataType::Int32);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_int16");
+    field->set_fieldid(102);
+    field->set_data_type(milvus::proto::schema::DataType::Int16);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_int8");
+    field->set_fieldid(103);
+    field->set_data_type(milvus::proto::schema::DataType::Int8);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_bool");
+    field->set_fieldid(104);
+    field->set_data_type(milvus::proto::schema::Bool);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_float");
+    field->set_fieldid(105);
+    field->set_data_type(milvus::proto::schema::DataType::Float);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_double");
+    field->set_fieldid(106);
+    field->set_data_type(milvus::proto::schema::DataType::Double);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("x_string");
+    field->set_fieldid(107);
+    field->set_data_type(milvus::proto::schema::DataType::String);
+  }
+  {
+    auto field = schema.add_fields();
+    field->set_name("v");
+    field->set_fieldid(108);
+    field->set_data_type(milvus::proto::schema::DataType::FloatVector);
+    auto kv = field->add_type_params();
+    kv->set_key("dim");
+    kv->set_value("128");
+  }
+  auto helper = milvus::CreateSchemaHelper(&schema);
+  /*
+  const std::vector<std::string> for_test = {
+
+      "1.0 + 2.0",
+      "1.0 + 2",
+      "1 + 2.0",
+      "1 + 2",
+      "1.0 - 2.0",
+      "1.0 - 2",
+      "1 - 2.0",
+      "1 - 2",
+      "1.0 * 2.0",
+      "1.0 * 2",
+      "1 * 2.0",
+      "1 * 2",
+      "1.0 / 2.0",
+      "1.0 / 2",
+      "1 / 2.0",
+      "1 / 2",
+      "1 % 2",
+      // ------------------- logical operations ----------------
+      "true and false",
+      "true or false",
+      "!true",
+      "!false",
+      // ------------------- relational operations ----------------
+      "\"1\" < \"2\"",
+      "1.0 < 2.0",
+      "1.0 < 2",
+      "1 < 2.0",
+      "1 < 2",
+      "\" 1 \" <= \" 2 \"",
+      "1.0 <= 2.0",
+      "1.0 <= 2",
+      "1 <= 2.0",
+      "1 <= 2",
+      "\" 1 \" > \" 2 \"",
+      "1.0 > 2.0",
+      "1.0 > 2",
+      "1 > 2.0",
+      "1 > 2",
+      "\" 1 \" >= \" 2 \"",
+      "1.0 >= 2.0",
+      "1.0 >= 2",
+      "1 >= 2.0",
+      "1 >= 2",
+      "\" 1 \" == \" 2 \"",
+      "1.0 == 2.0",
+      "1.0 == 2",
+      "1 == 2.0",
+      "1 == 2",
+      "true == false",
+      "\" 1 \" != \" 2 \"",
+      "1.0 != 2.0",
+      "1.0 != 2",
+      "1 != 2.0",
+      "1 != 2",
+      "true != false"
+  };
+  */
+
+  std::vector<std::string> for_test = {
+
+      "x_int64 in [4,5,6]",
+      "100<x_int32<120",
+      "32<=x_int16<64",
+      "12<=x_int8<=32",
+      "12<x_int64<=22",
+      "x_bool in [true]",
+      "x_string in [\"aa\", \"bb\"]"
+
+  };
+
+  for (auto &&str_ : for_test) {
+    std::cout << str_ << std::endl;
+    check_expr(str_, helper);
+  }
+
   return 0;
 }

@@ -470,32 +470,9 @@ ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
   assert(false);
 }
 
-proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
-                                 ExprWithDtype b,
-                                 google::protobuf::Arena *arena) {
-  if (!a.expr->has_column_expr() || !b.expr->has_column_expr())
-    assert(false);
-
-  auto a_info = a.expr->column_expr().info();
-
-  auto b_info = b.expr->column_expr().info();
-
-  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
-  auto compare_expr =
-      google::protobuf::Arena::CreateMessage<proto::plan::CompareExpr>(arena);
-  compare_expr->unsafe_arena_set_allocated_left_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      a_info));
-  compare_expr->unsafe_arena_set_allocated_right_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      b_info));
-  compare_expr->set_op(op);
-
-  return expr;
-}
-
 proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
-                                     proto::plan::GenericValue *value) {
+                                     proto::plan::GenericValue *value,
+                                     google::protobuf::Arena *arena = nullptr) {
   if (dtype == proto::schema::DataType::JSON)
     return value;
   if (dtype == proto::schema::DataType::Array && value->has_array_val())
@@ -509,9 +486,11 @@ proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
     if (value->has_float_val())
       return value;
     if (value->has_int64_val()) {
-      auto value_ = new proto::plan::GenericValue();
-      value_->set_float_val(double(value->int64_val()));
-      return value_;
+      auto value_tmp =
+          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+              arena);
+      value_tmp->set_float_val(double(value->int64_val()));
+      return value_tmp;
     }
   }
 
@@ -526,19 +505,25 @@ proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
   assert(false);
 }
 
-proto::plan::Expr *
-combineArrayLengthExpr(proto::plan::OpType op,
-                       proto::plan::ArithOpType arith_op,
-                       const proto::plan::ColumnInfo &info,
-                       const proto::plan::GenericValue &value) {
+proto::plan::Expr *combineArrayLengthExpr(
+    proto::plan::OpType op, proto::plan::ArithOpType arith_op,
+    const proto::plan::ColumnInfo &info, const proto::plan::GenericValue &value,
+    google::protobuf::Arena *arena = nullptr) {
 
-  auto expr = new proto::plan::Expr();
-  auto range_expr = new proto::plan::BinaryArithOpEvalRangeExpr();
-  expr->set_allocated_binary_arith_op_eval_range_expr(range_expr);
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto range_expr = google::protobuf::Arena::CreateMessage<
+      proto::plan::BinaryArithOpEvalRangeExpr>(arena);
+  expr->unsafe_arena_set_allocated_binary_arith_op_eval_range_expr(range_expr);
   range_expr->set_op(op);
   range_expr->set_arith_op(arith_op);
-  range_expr->set_allocated_value(new proto::plan::GenericValue(value));
-  range_expr->set_allocated_column_info(new proto::plan::ColumnInfo(info));
+  range_expr->unsafe_arena_set_allocated_value(
+      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(arena,
+                                                                        value)
+
+  );
+  range_expr->unsafe_arena_set_allocated_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      info));
   return expr;
 }
 
@@ -547,21 +532,31 @@ combineBinaryArithExpr(proto::plan::OpType op,
                        proto::plan::ArithOpType arith_op,
                        const proto::plan::ColumnInfo &info,
                        const proto::plan::GenericValue &operand,
-                       const proto::plan::GenericValue &value) {
+                       const proto::plan::GenericValue &value,
+                       google::protobuf::Arena *arena = nullptr) {
   auto data_type = info.data_type();
   if (data_type != proto::schema::DataType::Array &&
       info.nested_path_size() != 0) {
     data_type = info.element_type();
   }
-  auto casted_value =
-      castValue(data_type, new proto::plan::GenericValue(operand));
-  auto expr = new proto::plan::Expr();
-  auto range_expr = new proto::plan::BinaryArithOpEvalRangeExpr();
-  expr->set_allocated_binary_arith_op_eval_range_expr(range_expr);
-  range_expr->set_allocated_column_info(new proto::plan::ColumnInfo(info));
+  auto casted_value = castValue(
+      data_type,
+      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+          arena, operand));
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto range_expr = google::protobuf::Arena::CreateMessage<
+      proto::plan::BinaryArithOpEvalRangeExpr>(arena);
+  expr->unsafe_arena_set_allocated_binary_arith_op_eval_range_expr(range_expr);
+  range_expr->unsafe_arena_set_allocated_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      info)
+
+  );
   range_expr->set_arith_op(arith_op);
-  range_expr->set_allocated_right_operand(casted_value);
-  range_expr->set_allocated_value(new proto::plan::GenericValue(value));
+  range_expr->unsafe_arena_set_allocated_right_operand(casted_value);
+  range_expr->unsafe_arena_set_allocated_value(
+      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(arena,
+                                                                        value));
   range_expr->set_op(op);
 
   return expr;
@@ -623,37 +618,110 @@ handleBinaryArithExpr(proto::plan::OpType op,
 }
 
 proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
-                                           ExprWithDtype a, ExprWithDtype b) {
+                                           ExprWithDtype a, ExprWithDtype b,
+                                           google::protobuf::Arena *arena) {
   auto data_type = a.dtype;
   if (data_type == proto::schema::DataType::Array &&
-      a.expr->column_expr().info().nested_path_size() != 0)
-
-  {
+      a.expr->column_expr().info().nested_path_size() != 0) {
     data_type = a.expr->column_expr().info().element_type();
   }
   auto value = b.expr->value_expr().value();
-  auto castedvalue = castValue(data_type, &value);
+  auto castedvalue = castValue(data_type, &value, arena);
   if (a.expr->has_binary_expr()) {
-    auto value_expr = new proto::plan::ValueExpr();
-    value_expr->set_allocated_value(castedvalue);
+    auto value_expr =
+        google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
+    value_expr->unsafe_arena_set_allocated_value(castedvalue);
     return handleBinaryArithExpr(
-        op, new proto::plan::BinaryArithExpr(a.expr->binary_arith_expr()),
+        op,
+        google::protobuf::Arena::CreateMessage<proto::plan::BinaryArithExpr>(
+            arena, a.expr->binary_arith_expr()),
         value_expr);
   }
 
   assert(a.expr->has_column_expr());
   auto info = a.expr->column_expr().info();
 
-  auto expr = new proto::plan::Expr();
-  auto unary_range_expr = new proto::plan::UnaryRangeExpr();
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto unary_range_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::UnaryRangeExpr>(
+          arena);
 
   unary_range_expr->set_op(op);
-  unary_range_expr->set_allocated_column_info(
-      new proto::plan::ColumnInfo(info));
+  unary_range_expr->unsafe_arena_set_allocated_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      info));
 
   unary_range_expr->set_allocated_value(castedvalue);
 
   return expr;
+}
+
+proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
+                                 ExprWithDtype b,
+                                 google::protobuf::Arena *arena = nullptr) {
+
+  if (!a.expr->has_column_expr() || !b.expr->has_column_expr())
+    assert(false);
+
+  auto a_info = a.expr->column_expr().info();
+
+  auto b_info = b.expr->column_expr().info();
+
+  auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
+  auto compare_expr =
+      google::protobuf::Arena::CreateMessage<proto::plan::CompareExpr>(arena);
+  compare_expr->unsafe_arena_set_allocated_left_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      a_info));
+  compare_expr->unsafe_arena_set_allocated_right_column_info(
+      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
+                                                                      b_info));
+  compare_expr->set_op(op);
+
+  return expr;
+}
+
+proto::plan::OpType reverseOrder(proto::plan::OpType op) {
+
+  switch (op) {
+
+  case proto::plan::OpType::LessThan:
+    return proto::plan::OpType::GreaterThan;
+  case proto::plan::OpType::LessEqual:
+    return proto::plan::OpType::GreaterEqual;
+  case proto::plan::OpType::GreaterThan:
+    return proto::plan::OpType::LessThan;
+  case proto::plan::OpType::GreaterEqual:
+    return proto::plan::OpType::LessEqual;
+  case proto::plan::OpType::Equal:
+    return proto::plan::OpType::NotEqual;
+  case proto::plan::OpType::NotEqual:
+    return proto::plan::OpType::Equal;
+  default:
+    return proto::plan::OpType::Invalid;
+  }
+}
+
+proto::plan::Expr *HandleCompare(int op, ExprWithDtype a, ExprWithDtype b,
+                                 google::protobuf::Arena *arena = nullptr) {
+
+  assert(canBeCompared(a, b));
+  std::map<int, proto::plan::OpType> cmpOpMap{
+      {PlanParser::LT, proto::plan::OpType::LessThan},
+      {PlanParser::LE, proto::plan::OpType::LessEqual},
+      {PlanParser::GT, proto::plan::OpType::GreaterThan},
+      {PlanParser::GE, proto::plan::OpType::GreaterEqual},
+      {PlanParser::EQ, proto::plan::OpType::Equal},
+      {PlanParser::NE, proto::plan::OpType::NotEqual}};
+  auto cmpop = cmpOpMap[op];
+  if (a.expr->has_value_expr()) {
+    auto op = reverseOrder(cmpop);
+    return handleCompareRightValue(op, b, a, arena);
+  } else if (b.expr->has_value_expr()) {
+    return handleCompareRightValue(cmpop, a, b, arena);
+  }
+
+  return HandleCompare(cmpop, a, b, arena);
 }
 
 bool checkDirectComparisonBinaryField(proto::plan::ColumnInfo *info) {
