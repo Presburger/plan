@@ -162,8 +162,8 @@ public:
     assert(left_expr_with_type.dtype == proto::schema::DataType::Bool);
     assert(right_expr_with_type.dtype == proto::schema::DataType::Bool);
     return ExprWithDtype(
-        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalOr>(left_expr,
-                                                                  right_expr),
+        createBinExpr<proto::plan::BinaryExpr_BinaryOp_LogicalAnd>(
+            left_expr, right_expr, this->arena.get()),
         proto::schema::DataType::Bool, false);
   }
 
@@ -584,175 +584,69 @@ public:
 
   virtual std::any
   visitReverseRange(PlanParser::ReverseRangeContext *ctx) override {
-
     auto info = getChildColumnInfo(ctx->Identifier(), ctx->JSONIdentifier());
     assert(info != nullptr);
     assert(checkDirectComparisonBinaryField(info));
     auto lower = std::any_cast<ExprWithDtype>(ctx->expr()[1]->accept(this));
     auto upper = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
 
-    auto a = extractValue(lower.expr);
-    auto b = extractValue(upper.expr);
-    if (!a.has_value() || !b.has_value())
-      return nullptr;
-
     if (info->data_type() == proto::schema::DataType::Int8 ||
         info->data_type() == proto::schema::DataType::Int16 ||
         info->data_type() == proto::schema::DataType::Int32 ||
-        info->data_type() == proto::schema::DataType::Int64) {
-      if (a.type() == typeid(int64_t) && b.type() == typeid(int64_t)) {
+        info->data_type() == proto::schema::DataType::Int64 ||
+        info->data_type() == proto::schema::DataType::Float ||
+        info->data_type() == proto::schema::DataType::Double ||
+        info->data_type() == proto::schema::DataType::String) {
+      auto a = extractValue(lower.expr);
+      auto b = extractValue(upper.expr);
+      if (a.has_value() && b.has_value()) {
         bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
         bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_int64_val(std::any_cast<int64_t>(a));
-        upper_value->set_int64_val(std::any_cast<int64_t>(b));
+        auto expr = new proto::plan::Expr();
+        auto binary_range_expr = new proto::plan::BinaryRangeExpr();
+        auto lower_value = new proto::plan::GenericValue();
+        auto upper_value = new proto::plan::GenericValue();
+        if (a.type() == typeid(int8_t))
+          lower_value->set_int64_val(int64_t(std::any_cast<int8_t>(a)));
+        if (a.type() == typeid(int16_t))
+          lower_value->set_int64_val(int64_t(std::any_cast<int16_t>(a)));
+        if (a.type() == typeid(int32_t))
+          lower_value->set_int64_val(int64_t(std::any_cast<int32_t>(a)));
+        if (a.type() == typeid(int64_t))
+          lower_value->set_int64_val(std::any_cast<int64_t>(a));
+        if (a.type() == typeid(double))
+          lower_value->set_float_val(std::any_cast<double>(a));
+        if (a.type() == typeid(float))
+          lower_value->set_float_val(double(std::any_cast<float>(a)));
+        if (a.type() == typeid(std::string))
+          lower_value->set_string_val(std::any_cast<std::string>(a));
+
+        if (b.type() == typeid(int8_t))
+          upper_value->set_int64_val(int64_t(std::any_cast<int8_t>(b)));
+        if (b.type() == typeid(int16_t))
+          upper_value->set_int64_val(int64_t(std::any_cast<int16_t>(b)));
+        if (b.type() == typeid(int32_t))
+          upper_value->set_int64_val(int64_t(std::any_cast<int32_t>(b)));
+        if (b.type() == typeid(int64_t))
+          upper_value->set_int64_val(int64_t(std::any_cast<int64_t>(b)));
+        if (b.type() == typeid(double))
+          upper_value->set_float_val(std::any_cast<double>(b));
+        if (b.type() == typeid(float))
+          upper_value->set_float_val(double(std::any_cast<float>(b)));
+        if (b.type() == typeid(std::string))
+          upper_value->set_string_val(std::any_cast<std::string>(b));
+
         binary_range_expr->set_lower_inclusive(lowerinclusive);
         binary_range_expr->set_upper_inclusive(upperinclusive);
         binary_range_expr->unsafe_arena_set_allocated_column_info(info);
 
         binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
         binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
-        return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-      }
-
-      if (a.type() == typeid(int32_t) && b.type() == typeid(int32_t)) {
-        bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
-        bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_int64_val(std::any_cast<int32_t>(a));
-        upper_value->set_int64_val(std::any_cast<int32_t>(b));
-        binary_range_expr->set_lower_inclusive(lowerinclusive);
-        binary_range_expr->set_upper_inclusive(upperinclusive);
-        binary_range_expr->unsafe_arena_set_allocated_column_info(info);
-
-        binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
-        binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
-        return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-      }
-
-      if (a.type() == typeid(int16_t) && b.type() == typeid(int16_t)) {
-        bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
-        bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_int64_val(std::any_cast<int16_t>(a));
-        upper_value->set_int64_val(std::any_cast<int16_t>(b));
-        binary_range_expr->set_lower_inclusive(lowerinclusive);
-        binary_range_expr->set_upper_inclusive(upperinclusive);
-        binary_range_expr->unsafe_arena_set_allocated_column_info(info);
-
-        binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
-        binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
-        return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-      }
-
-      if (a.type() == typeid(int8_t) && b.type() == typeid(int8_t)) {
-        bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
-        bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_int64_val(std::any_cast<int8_t>(a));
-        upper_value->set_int64_val(std::any_cast<int8_t>(b));
-        binary_range_expr->set_lower_inclusive(lowerinclusive);
-        binary_range_expr->set_upper_inclusive(upperinclusive);
-        binary_range_expr->unsafe_arena_set_allocated_column_info(info);
-
-        binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
-        binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
+        expr->set_allocated_binary_range_expr(binary_range_expr);
         return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
       }
     }
 
-    if (info->data_type() == proto::schema::DataType::Double ||
-        info->data_type() == proto::schema::DataType::Float) {
-      if (a.type() == typeid(double) && b.type() == typeid(double)) {
-        bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
-        bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_float_val(float(std::any_cast<double>(a)));
-        upper_value->set_float_val(float(std::any_cast<double>(b)));
-        binary_range_expr->set_lower_inclusive(lowerinclusive);
-        binary_range_expr->set_upper_inclusive(upperinclusive);
-        binary_range_expr->unsafe_arena_set_allocated_column_info(info);
-
-        binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
-        binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
-        return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-      }
-
-      if (a.type() == typeid(float) && b.type() == typeid(float)) {
-        bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
-        bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
-            this->arena.get());
-        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
-            proto::plan::BinaryRangeExpr>(this->arena.get());
-        auto lower_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        auto upper_value =
-            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-                this->arena.get());
-        lower_value->set_float_val(float(std::any_cast<float>(a)));
-        upper_value->set_float_val(float(std::any_cast<float>(b)));
-        binary_range_expr->set_lower_inclusive(lowerinclusive);
-        binary_range_expr->set_upper_inclusive(upperinclusive);
-        binary_range_expr->unsafe_arena_set_allocated_column_info(info);
-
-        binary_range_expr->unsafe_arena_set_allocated_lower_value(lower_value);
-        binary_range_expr->unsafe_arena_set_allocated_upper_value(upper_value);
-        expr->unsafe_arena_set_allocated_binary_range_expr(binary_range_expr);
-        return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
-      }
-    }
     return nullptr;
   }
 
@@ -842,7 +736,7 @@ public:
           createBinArithExpr<proto::plan::ArithOpType::Add>(
               left_expr, right_expr, this->arena.get()),
           calDataType(&left_expr_with_type, &right_expr_with_type), false);
-    case PlanParser::DIV:
+    case PlanParser::SUB:
       return ExprWithDtype(
           createBinArithExpr<proto::plan::ArithOpType::Sub>(
               left_expr, right_expr, this->arena.get()),
@@ -855,7 +749,6 @@ public:
 
   virtual std::any
   visitRelational(PlanParser::RelationalContext *ctx) override {
-    std::cout << ctx->getText() << std::endl;
     auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
     auto right_expr_with_type =
@@ -924,7 +817,8 @@ public:
       ExprWithDtype left = left_expr_with_type;
       ExprWithDtype right = toValueExpr(
           google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get()));
+              this->arena.get(),
+              right_expr_with_type.expr->value_expr().value()));
 
       return ExprWithDtype(
           HandleCompare(ctx->op->getType(), left, right, this->arena.get()),
@@ -1090,7 +984,10 @@ public:
     if (info->data_type() == proto::schema::DataType::Int8 ||
         info->data_type() == proto::schema::DataType::Int16 ||
         info->data_type() == proto::schema::DataType::Int32 ||
-        info->data_type() == proto::schema::DataType::Int64) {
+        info->data_type() == proto::schema::DataType::Int64 ||
+        info->data_type() == proto::schema::DataType::Float ||
+        info->data_type() == proto::schema::DataType::Double ||
+        info->data_type() == proto::schema::DataType::String) {
       auto a = extractValue(lower.expr);
       auto b = extractValue(upper.expr);
       if (a.has_value() && b.has_value()) {
@@ -1112,6 +1009,8 @@ public:
           lower_value->set_float_val(std::any_cast<double>(a));
         if (a.type() == typeid(float))
           lower_value->set_float_val(double(std::any_cast<float>(a)));
+        if (a.type() == typeid(std::string))
+          lower_value->set_string_val(std::any_cast<std::string>(a));
 
         if (b.type() == typeid(int8_t))
           upper_value->set_int64_val(int64_t(std::any_cast<int8_t>(b)));
@@ -1125,6 +1024,8 @@ public:
           upper_value->set_float_val(std::any_cast<double>(b));
         if (b.type() == typeid(float))
           upper_value->set_float_val(double(std::any_cast<float>(b)));
+        if (b.type() == typeid(std::string))
+          upper_value->set_string_val(std::any_cast<std::string>(b));
 
         binary_range_expr->set_lower_inclusive(lowerinclusive);
         binary_range_expr->set_upper_inclusive(upperinclusive);
@@ -1520,14 +1421,39 @@ int main() {
 
   std::vector<std::string> for_test = {
 
+      "x_int64 > 30",
       "x_int64 in [4,5,6]",
       "100<x_int32<120",
       "32<=x_int16<64",
       "12<=x_int8<=32",
       "12<x_int64<=22",
+      "1.0<x_float<=3.0",
+      "2.0<=x_double<=10.0",
       "x_bool in [true]",
-      "x_string in [\"aa\", \"bb\"]"
-
+      "x_string in [\"aa\", \"bb\"]",
+      "x_int64 in [1, \"abc\", 2]",
+      "x_int64 >= x_int32",
+      "x_int64 <x_int32",
+      "x_double==x_float",
+      "x_double!=x_float",
+      "x_int64%10==9",
+      "x_int64-10==9",
+      "x_int64*3==9",
+      "x_int64/10==3",
+      "x_int64+1==3",
+      "100>x_int32>120",
+      "64>=x_int16>32",
+      "12>x_int8>=10",
+      "12>=x_int64>6",
+      "3.0>x_float>1.0",
+      "15.0>x_double>10.0",
+      R"("str14" > x_string > "str13")",
+      "1",
+      "2.0",
+      "true",
+      "false",
+      R"("str")",
+      "x_int64 > 30 and x_bool",
   };
 
   for (auto &&str_ : for_test) {

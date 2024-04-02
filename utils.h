@@ -90,7 +90,6 @@ proto::plan::Expr *createBinExpr(proto::plan::Expr *left,
   bin_expr->unsafe_arena_set_allocated_left(left);
   bin_expr->unsafe_arena_set_allocated_right(right);
   expr->unsafe_arena_set_allocated_binary_expr(bin_expr);
-
   return expr;
 }
 
@@ -106,6 +105,7 @@ createBinArithExpr(proto::plan::Expr *left, proto::plan::Expr *right,
   bin_expr->set_op(T);
   bin_expr->unsafe_arena_set_allocated_left(left);
   bin_expr->unsafe_arena_set_allocated_right(right);
+  expr->unsafe_arena_set_allocated_binary_arith_expr(bin_expr);
   return expr;
 }
 
@@ -452,6 +452,7 @@ ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
       google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
   value_expr->unsafe_arena_set_allocated_value(value);
 
+  expr->unsafe_arena_set_allocated_value_expr(value_expr);
   if (value->has_bool_val()) {
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
   }
@@ -474,17 +475,25 @@ proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
                                      proto::plan::GenericValue *value,
                                      google::protobuf::Arena *arena = nullptr) {
   if (dtype == proto::schema::DataType::JSON)
-    return value;
+    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+        arena, *value);
   if (dtype == proto::schema::DataType::Array && value->has_array_val())
-    return value;
+    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+        arena, *value);
   if (dtype == proto::schema::DataType::String && value->has_string_val())
-    return value;
+    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+        arena, *value);
+
   if (dtype == proto::schema::DataType::Bool && value->has_bool_val())
-    return value;
+    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+        arena, *value);
+
   if (dtype == proto::schema::DataType::Float ||
       dtype == proto::schema::DataType::Double) {
     if (value->has_float_val())
-      return value;
+      return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+          arena, *value);
+    ;
     if (value->has_int64_val()) {
       auto value_tmp =
           google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
@@ -499,7 +508,8 @@ proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
       dtype == proto::schema::DataType::Int32 ||
       dtype == proto::schema::DataType::Int64) {
     if (value->has_int64_val())
-      return value;
+      return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+          arena, *value);
   }
 
   assert(false);
@@ -565,7 +575,8 @@ combineBinaryArithExpr(proto::plan::OpType op,
 proto::plan::Expr *
 handleBinaryArithExpr(proto::plan::OpType op,
                       proto::plan::BinaryArithExpr *arith_expr,
-                      proto::plan::ValueExpr *value_expr) {
+                      proto::plan::ValueExpr *value_expr,
+                      google::protobuf::Arena *arena = nullptr) {
 
   switch (op) {
   case proto::plan::OpType::Equal:
@@ -585,7 +596,7 @@ handleBinaryArithExpr(proto::plan::OpType op,
 
   if (arith_op == proto::plan::ArithOpType::ArrayLength) {
     return combineArrayLengthExpr(op, arith_op, left_expr.info(),
-                                  value_expr->value());
+                                  value_expr->value(), arena);
   }
   if (arith_expr->left().has_column_expr() &&
       arith_expr->right().has_column_expr()) {
@@ -598,7 +609,8 @@ handleBinaryArithExpr(proto::plan::OpType op,
   if (arith_expr->left().has_column_expr() &&
       arith_expr->right().has_value_expr()) {
     return combineBinaryArithExpr(op, arith_op, left_expr.info(),
-                                  right_value.value(), value_expr->value());
+                                  right_value.value(), value_expr->value(),
+                                  arena);
   }
   if (arith_expr->right().has_column_expr() &&
       arith_expr->left().has_value_expr()) {
@@ -606,10 +618,12 @@ handleBinaryArithExpr(proto::plan::OpType op,
     switch (arith_expr->op()) {
     case proto::plan::ArithOpType::Add:
       return combineBinaryArithExpr(op, arith_op, right_expr.info(),
-                                    left_value.value(), value_expr->value());
+                                    left_value.value(), value_expr->value(),
+                                    arena);
     case proto::plan::ArithOpType::Mul:
       return combineBinaryArithExpr(op, arith_op, right_expr.info(),
-                                    left_value.value(), value_expr->value());
+                                    left_value.value(), value_expr->value(),
+                                    arena);
     default:
       assert(false);
     }
@@ -617,9 +631,11 @@ handleBinaryArithExpr(proto::plan::OpType op,
   assert(false);
 }
 
-proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
-                                           ExprWithDtype a, ExprWithDtype b,
-                                           google::protobuf::Arena *arena) {
+proto::plan::Expr *
+handleCompareRightValue(proto::plan::OpType op, ExprWithDtype a,
+                        ExprWithDtype b,
+                        google::protobuf::Arena *arena = nullptr) {
+
   auto data_type = a.dtype;
   if (data_type == proto::schema::DataType::Array &&
       a.expr->column_expr().info().nested_path_size() != 0) {
@@ -627,7 +643,7 @@ proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
   }
   auto value = b.expr->value_expr().value();
   auto castedvalue = castValue(data_type, &value, arena);
-  if (a.expr->has_binary_expr()) {
+  if (a.expr->has_binary_arith_expr()) {
     auto value_expr =
         google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
     value_expr->unsafe_arena_set_allocated_value(castedvalue);
@@ -635,7 +651,7 @@ proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
         op,
         google::protobuf::Arena::CreateMessage<proto::plan::BinaryArithExpr>(
             arena, a.expr->binary_arith_expr()),
-        value_expr);
+        value_expr, arena);
   }
 
   assert(a.expr->has_column_expr());
@@ -651,7 +667,9 @@ proto::plan::Expr *handleCompareRightValue(proto::plan::OpType op,
       google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
                                                                       info));
 
-  unary_range_expr->set_allocated_value(castedvalue);
+  unary_range_expr->unsafe_arena_set_allocated_value(castedvalue);
+
+  expr->unsafe_arena_set_allocated_unary_range_expr(unary_range_expr);
 
   return expr;
 }
@@ -660,8 +678,7 @@ proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
                                  ExprWithDtype b,
                                  google::protobuf::Arena *arena = nullptr) {
 
-  if (!a.expr->has_column_expr() || !b.expr->has_column_expr())
-    assert(false);
+  assert(a.expr->has_column_expr() && b.expr->has_column_expr());
 
   auto a_info = a.expr->column_expr().info();
 
@@ -677,6 +694,7 @@ proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
       google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
                                                                       b_info));
   compare_expr->set_op(op);
+  expr->unsafe_arena_set_allocated_compare_expr(compare_expr);
 
   return expr;
 }
