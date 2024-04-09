@@ -8,6 +8,13 @@
 
 namespace milvus {
 
+template <typename T>
+inline T *CreateMessageWithCopy(google::protobuf::Arena *arena, const T &val) {
+  T *ret = google::protobuf::Arena::CreateMessage<T>(arena);
+  ret->CopyFrom(val);
+  return ret;
+}
+
 struct ExprWithDtype {
   proto::plan::Expr *expr;
   proto::schema::DataType dtype;
@@ -17,8 +24,7 @@ struct ExprWithDtype {
       : expr(expr), dtype(dtype), dependent(dependent) {}
 };
 
-std::any extractValue(proto::plan::Expr *expr) {
-
+inline std::any extractValue(proto::plan::Expr *expr) {
   if (!expr->has_value_expr())
     return nullptr;
 
@@ -37,8 +43,8 @@ std::any extractValue(proto::plan::Expr *expr) {
 }
 
 template <typename T>
-proto::plan::Expr *createValueExpr(const T val,
-                                   google::protobuf::Arena *arena = nullptr) {
+inline proto::plan::Expr *
+createValueExpr(const T val, google::protobuf::Arena *arena = nullptr) {
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
   auto val_expr =
       google::protobuf::Arena::CreateMessage<proto::plan::ValueExpr>(arena);
@@ -59,15 +65,14 @@ proto::plan::Expr *createValueExpr(const T val,
   else if constexpr (std::is_same_v<T, bool>)
     value->set_bool_val(val);
   else
-    static_assert(false);
+    assert(false);
 
   val_expr->unsafe_arena_set_allocated_value(value);
   expr->unsafe_arena_set_allocated_value_expr(val_expr);
   return expr;
 }
 
-std::vector<std::string> tokenize(std::string s, std::string del = " ") {
-
+inline std::vector<std::string> tokenize(std::string s, std::string del = " ") {
   std::vector<std::string> results;
   int start, end = -1 * del.size();
   do {
@@ -79,10 +84,9 @@ std::vector<std::string> tokenize(std::string s, std::string del = " ") {
 }
 
 template <proto::plan::BinaryExpr_BinaryOp T>
-proto::plan::Expr *createBinExpr(proto::plan::Expr *left,
-                                 proto::plan::Expr *right,
-                                 google::protobuf::Arena *arena = nullptr) {
-
+inline proto::plan::Expr *
+createBinExpr(proto::plan::Expr *left, proto::plan::Expr *right,
+              google::protobuf::Arena *arena = nullptr) {
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
   auto bin_expr =
       google::protobuf::Arena::CreateMessage<proto::plan::BinaryExpr>(arena);
@@ -94,10 +98,9 @@ proto::plan::Expr *createBinExpr(proto::plan::Expr *left,
 }
 
 template <proto::plan::ArithOpType T>
-proto::plan::Expr *
+inline proto::plan::Expr *
 createBinArithExpr(proto::plan::Expr *left, proto::plan::Expr *right,
                    google::protobuf::Arena *arena = nullptr) {
-
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
   auto bin_expr =
       google::protobuf::Arena::CreateMessage<proto::plan::BinaryArithExpr>(
@@ -109,7 +112,7 @@ createBinArithExpr(proto::plan::Expr *left, proto::plan::Expr *right,
   return expr;
 }
 
-bool arithmeticDtype(proto::schema::DataType type) {
+inline bool arithmeticDtype(proto::schema::DataType type) {
   switch (type) {
   case proto::schema::DataType::Float:
     return true;
@@ -128,7 +131,7 @@ bool arithmeticDtype(proto::schema::DataType type) {
   }
 }
 
-proto::schema::DataType getArrayElementType(proto::plan::Expr *expr) {
+inline proto::schema::DataType getArrayElementType(proto::plan::Expr *expr) {
   if (expr->has_column_expr()) {
     return expr->column_expr().info().data_type();
   }
@@ -140,9 +143,8 @@ proto::schema::DataType getArrayElementType(proto::plan::Expr *expr) {
   return proto::schema::DataType::None;
 }
 
-bool canArithmeticDtype(proto::schema::DataType left_type,
-                        proto::schema::DataType right_type) {
-
+inline bool canArithmeticDtype(proto::schema::DataType left_type,
+                               proto::schema::DataType right_type) {
   if (left_type == proto::schema::DataType::JSON &&
       right_type == proto::schema::DataType::JSON)
     return false;
@@ -155,7 +157,7 @@ bool canArithmeticDtype(proto::schema::DataType left_type,
   return false;
 }
 
-proto::schema::DataType calDataType(ExprWithDtype *a, ExprWithDtype *b) {
+inline proto::schema::DataType calDataType(ExprWithDtype *a, ExprWithDtype *b) {
   auto a_dtype = a->dtype;
   auto b_dtype = b->dtype;
   if (a->dtype == proto::schema::DataType::Array) {
@@ -203,7 +205,6 @@ proto::schema::DataType calDataType(ExprWithDtype *a, ExprWithDtype *b) {
 }
 
 struct SchemaHelper {
-
   SchemaHelper() = default;
 
   proto::schema::CollectionSchema *schema = nullptr;
@@ -271,7 +272,8 @@ struct SchemaHelper {
   }
 };
 
-SchemaHelper CreateSchemaHelper(proto::schema::CollectionSchema *schema) {
+inline SchemaHelper
+CreateSchemaHelper(proto::schema::CollectionSchema *schema) {
   assert(schema);
   SchemaHelper schema_helper;
   schema_helper.schema = schema;
@@ -294,8 +296,7 @@ SchemaHelper CreateSchemaHelper(proto::schema::CollectionSchema *schema) {
   return schema_helper;
 }
 
-std::string convertEscapeSingle(const std::string &in) {
-
+inline std::string convertEscapeSingle(const std::string &in) {
   std::vector<size_t> need_replace_index;
   size_t escape_ch_count = 0;
   size_t in_string_lenth = in.length();
@@ -340,7 +341,7 @@ std::string convertEscapeSingle(const std::string &in) {
   return out;
 }
 
-bool hasWildcards(std::string pattern) {
+inline bool hasWildcards(std::string pattern) {
   size_t l = pattern.length();
   size_t i = l - 1;
   for (; i >= 0; i--) {
@@ -355,7 +356,7 @@ bool hasWildcards(std::string pattern) {
   return false;
 }
 
-int findLastNotOfWildcards(std::string pattern) {
+inline int findLastNotOfWildcards(std::string pattern) {
   int loc = pattern.length() - 1;
   for (; loc >= 0; loc--) {
     if (pattern[loc] == '%') {
@@ -369,9 +370,8 @@ int findLastNotOfWildcards(std::string pattern) {
   return loc;
 }
 
-std::pair<proto::plan::OpType, std::string>
+inline std::pair<proto::plan::OpType, std::string>
 translatePatternMatch(const std::string &pattern) {
-
   size_t l = pattern.length();
   size_t loc = findLastNotOfWildcards(pattern);
   if (loc < 0) {
@@ -384,7 +384,6 @@ translatePatternMatch(const std::string &pattern) {
   }
 
   if (!exist) {
-
     return std::make_pair(proto::plan::OpType::PrefixMatch,
                           pattern.substr(0, loc + 1));
   }
@@ -392,8 +391,8 @@ translatePatternMatch(const std::string &pattern) {
   assert(false);
 }
 
-bool canBeComparedDataType(proto::schema::DataType a,
-                           proto::schema::DataType b) {
+inline bool canBeComparedDataType(proto::schema::DataType a,
+                                  proto::schema::DataType b) {
   switch (a) {
   case proto::schema::DataType::Bool:
     return (b == proto::schema::DataType::Bool) ||
@@ -425,7 +424,7 @@ bool canBeComparedDataType(proto::schema::DataType a,
   }
 }
 
-bool canBeCompared(ExprWithDtype a, ExprWithDtype b) {
+inline bool canBeCompared(ExprWithDtype a, ExprWithDtype b) {
   if (a.dtype != proto::schema::DataType::Array &&
       b.dtype != proto::schema::DataType::Array) {
     return canBeComparedDataType(a.dtype, b.dtype);
@@ -444,8 +443,8 @@ bool canBeCompared(ExprWithDtype a, ExprWithDtype b) {
   return canBeComparedDataType(b.dtype, getArrayElementType(b.expr));
 }
 
-ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
-                          google::protobuf::Arena *arena = nullptr) {
+inline ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
+                                 google::protobuf::Arena *arena = nullptr) {
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
 
   auto value_expr =
@@ -463,7 +462,7 @@ ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
     return ExprWithDtype(expr, proto::schema::DataType::Float, false);
   }
   if (value->has_string_val()) {
-    return ExprWithDtype(expr, proto::schema::DataType::String, false);
+    return ExprWithDtype(expr, proto::schema::DataType::VarChar, false);
   }
   if (value->has_array_val()) {
     return ExprWithDtype(expr, proto::schema::DataType::Array, false);
@@ -471,28 +470,23 @@ ExprWithDtype toValueExpr(proto::plan::GenericValue *value,
   assert(false);
 }
 
-proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
-                                     proto::plan::GenericValue *value,
-                                     google::protobuf::Arena *arena = nullptr) {
+inline proto::plan::GenericValue *
+castValue(proto::schema::DataType dtype, proto::plan::GenericValue *value,
+          google::protobuf::Arena *arena = nullptr) {
   if (dtype == proto::schema::DataType::JSON)
-    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-        arena, *value);
+    return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
   if (dtype == proto::schema::DataType::Array && value->has_array_val())
-    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-        arena, *value);
-  if (dtype == proto::schema::DataType::String && value->has_string_val())
-    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-        arena, *value);
+    return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
+  if (dtype == proto::schema::DataType::VarChar && value->has_string_val())
+    return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
 
   if (dtype == proto::schema::DataType::Bool && value->has_bool_val())
-    return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-        arena, *value);
+    return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
 
   if (dtype == proto::schema::DataType::Float ||
       dtype == proto::schema::DataType::Double) {
     if (value->has_float_val())
-      return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-          arena, *value);
+      return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
     ;
     if (value->has_int64_val()) {
       auto value_tmp =
@@ -508,18 +502,16 @@ proto::plan::GenericValue *castValue(proto::schema::DataType dtype,
       dtype == proto::schema::DataType::Int32 ||
       dtype == proto::schema::DataType::Int64) {
     if (value->has_int64_val())
-      return google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-          arena, *value);
+      return CreateMessageWithCopy<proto::plan::GenericValue>(arena, *value);
   }
 
   assert(false);
 }
 
-proto::plan::Expr *combineArrayLengthExpr(
+inline proto::plan::Expr *combineArrayLengthExpr(
     proto::plan::OpType op, proto::plan::ArithOpType arith_op,
     const proto::plan::ColumnInfo &info, const proto::plan::GenericValue &value,
     google::protobuf::Arena *arena = nullptr) {
-
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
   auto range_expr = google::protobuf::Arena::CreateMessage<
       proto::plan::BinaryArithOpEvalRangeExpr>(arena);
@@ -527,17 +519,13 @@ proto::plan::Expr *combineArrayLengthExpr(
   range_expr->set_op(op);
   range_expr->set_arith_op(arith_op);
   range_expr->unsafe_arena_set_allocated_value(
-      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(arena,
-                                                                        value)
-
-  );
+      CreateMessageWithCopy<proto::plan::GenericValue>(arena, value));
   range_expr->unsafe_arena_set_allocated_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      info));
+      CreateMessageWithCopy<proto::plan::ColumnInfo>(arena, info));
   return expr;
 }
 
-proto::plan::Expr *
+inline proto::plan::Expr *
 combineBinaryArithExpr(proto::plan::OpType op,
                        proto::plan::ArithOpType arith_op,
                        const proto::plan::ColumnInfo &info,
@@ -551,33 +539,29 @@ combineBinaryArithExpr(proto::plan::OpType op,
   }
   auto casted_value = castValue(
       data_type,
-      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-          arena, operand));
+      CreateMessageWithCopy<proto::plan::GenericValue>(arena, operand));
   auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(arena);
   auto range_expr = google::protobuf::Arena::CreateMessage<
       proto::plan::BinaryArithOpEvalRangeExpr>(arena);
   expr->unsafe_arena_set_allocated_binary_arith_op_eval_range_expr(range_expr);
   range_expr->unsafe_arena_set_allocated_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      info)
+      CreateMessageWithCopy<proto::plan::ColumnInfo>(arena, info)
 
   );
   range_expr->set_arith_op(arith_op);
   range_expr->unsafe_arena_set_allocated_right_operand(casted_value);
   range_expr->unsafe_arena_set_allocated_value(
-      google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(arena,
-                                                                        value));
+      CreateMessageWithCopy<proto::plan::GenericValue>(arena, value));
   range_expr->set_op(op);
 
   return expr;
 }
 
-proto::plan::Expr *
+inline proto::plan::Expr *
 handleBinaryArithExpr(proto::plan::OpType op,
                       proto::plan::BinaryArithExpr *arith_expr,
                       proto::plan::ValueExpr *value_expr,
                       google::protobuf::Arena *arena = nullptr) {
-
   switch (op) {
   case proto::plan::OpType::Equal:
     break;
@@ -614,7 +598,6 @@ handleBinaryArithExpr(proto::plan::OpType op,
   }
   if (arith_expr->right().has_column_expr() &&
       arith_expr->left().has_value_expr()) {
-
     switch (arith_expr->op()) {
     case proto::plan::ArithOpType::Add:
       return combineBinaryArithExpr(op, arith_op, right_expr.info(),
@@ -631,11 +614,10 @@ handleBinaryArithExpr(proto::plan::OpType op,
   assert(false);
 }
 
-proto::plan::Expr *
+inline proto::plan::Expr *
 handleCompareRightValue(proto::plan::OpType op, ExprWithDtype a,
                         ExprWithDtype b,
                         google::protobuf::Arena *arena = nullptr) {
-
   auto data_type = a.dtype;
   if (data_type == proto::schema::DataType::Array &&
       a.expr->column_expr().info().nested_path_size() != 0) {
@@ -649,7 +631,7 @@ handleCompareRightValue(proto::plan::OpType op, ExprWithDtype a,
     value_expr->unsafe_arena_set_allocated_value(castedvalue);
     return handleBinaryArithExpr(
         op,
-        google::protobuf::Arena::CreateMessage<proto::plan::BinaryArithExpr>(
+        CreateMessageWithCopy<proto::plan::BinaryArithExpr>(
             arena, a.expr->binary_arith_expr()),
         value_expr, arena);
   }
@@ -664,8 +646,7 @@ handleCompareRightValue(proto::plan::OpType op, ExprWithDtype a,
 
   unary_range_expr->set_op(op);
   unary_range_expr->unsafe_arena_set_allocated_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      info));
+      CreateMessageWithCopy<proto::plan::ColumnInfo>(arena, info));
 
   unary_range_expr->unsafe_arena_set_allocated_value(castedvalue);
 
@@ -674,10 +655,9 @@ handleCompareRightValue(proto::plan::OpType op, ExprWithDtype a,
   return expr;
 }
 
-proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
-                                 ExprWithDtype b,
-                                 google::protobuf::Arena *arena = nullptr) {
-
+inline proto::plan::Expr *
+HandleCompare(proto::plan::OpType op, ExprWithDtype a, ExprWithDtype b,
+              google::protobuf::Arena *arena = nullptr) {
   assert(a.expr->has_column_expr() && b.expr->has_column_expr());
 
   auto a_info = a.expr->column_expr().info();
@@ -688,21 +668,17 @@ proto::plan::Expr *HandleCompare(proto::plan::OpType op, ExprWithDtype a,
   auto compare_expr =
       google::protobuf::Arena::CreateMessage<proto::plan::CompareExpr>(arena);
   compare_expr->unsafe_arena_set_allocated_left_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      a_info));
+      CreateMessageWithCopy<proto::plan::ColumnInfo>(arena, a_info));
   compare_expr->unsafe_arena_set_allocated_right_column_info(
-      google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(arena,
-                                                                      b_info));
+      CreateMessageWithCopy<proto::plan::ColumnInfo>(arena, b_info));
   compare_expr->set_op(op);
   expr->unsafe_arena_set_allocated_compare_expr(compare_expr);
 
   return expr;
 }
 
-proto::plan::OpType reverseOrder(proto::plan::OpType op) {
-
+inline proto::plan::OpType reverseOrder(proto::plan::OpType op) {
   switch (op) {
-
   case proto::plan::OpType::LessThan:
     return proto::plan::OpType::GreaterThan;
   case proto::plan::OpType::LessEqual:
@@ -720,9 +696,9 @@ proto::plan::OpType reverseOrder(proto::plan::OpType op) {
   }
 }
 
-proto::plan::Expr *HandleCompare(int op, ExprWithDtype a, ExprWithDtype b,
-                                 google::protobuf::Arena *arena = nullptr) {
-
+inline proto::plan::Expr *
+HandleCompare(int op, ExprWithDtype a, ExprWithDtype b,
+              google::protobuf::Arena *arena = nullptr) {
   assert(canBeCompared(a, b));
   std::map<int, proto::plan::OpType> cmpOpMap{
       {PlanParser::LT, proto::plan::OpType::LessThan},
@@ -742,7 +718,7 @@ proto::plan::Expr *HandleCompare(int op, ExprWithDtype a, ExprWithDtype b,
   return HandleCompare(cmpop, a, b, arena);
 }
 
-bool checkDirectComparisonBinaryField(proto::plan::ColumnInfo *info) {
+inline bool checkDirectComparisonBinaryField(proto::plan::ColumnInfo *info) {
   if (info->data_type() == proto::schema::DataType::Array &&
       info->nested_path_size() == 0) {
     return false;

@@ -41,7 +41,7 @@ public:
   virtual std::any visitString(PlanParser::StringContext *ctx) override {
     auto val = ctx->getText();
     return ExprWithDtype(createValueExpr<std::string>(val, this->arena.get()),
-                         proto::schema::DataType::String, true);
+                         proto::schema::DataType::VarChar, true);
   }
   // ok
   virtual std::any visitFloating(PlanParser::FloatingContext *ctx) override {
@@ -131,7 +131,6 @@ public:
 
   virtual std::any
   visitLogicalAnd(PlanParser::LogicalAndContext *ctx) override {
-
     auto left_expr_with_type =
         std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
     auto right_expr_with_type =
@@ -192,13 +191,13 @@ public:
             this->arena.get());
     auto value = json_contain_expr->add_elements(); // MayBe BUG
     value->unsafe_arena_set_allocated_array_val(
-        google::protobuf::Arena::CreateMessage<proto::plan::Array>(
+        CreateMessageWithCopy<proto::plan::Array>(
             this->arena.get(), elem.expr->value_expr().value().array_val()));
     json_contain_expr->set_elements_same_type(
         elem.expr->value_expr().value().array_val().same_type());
     json_contain_expr->unsafe_arena_set_allocated_column_info(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
-            this->arena.get(), info));
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
 
     json_contain_expr->set_op(proto::plan::JSONContainsExpr_JSONOp_ContainsAll);
     expr->unsafe_arena_set_allocated_json_contains_expr(json_contain_expr);
@@ -216,7 +215,6 @@ public:
     auto left_value = extractValue(left_expr);
     auto right_value = extractValue(right_expr);
     if (left_value.has_value() && right_value.has_value()) {
-
       if (left_value.type() == typeid(double) &&
           right_value.type() == typeid(double)) {
         switch (ctx->op->getType()) {
@@ -285,7 +283,6 @@ public:
 
       if (left_value.type() == typeid(int64_t) &&
           right_value.type() == typeid(double)) {
-
         switch (ctx->op->getType()) {
         case PlanParser::MUL:
           return ExprWithDtype(createValueExpr<double>(
@@ -388,8 +385,10 @@ public:
     info->set_data_type(field.data_type());
     info->set_is_primary_key(field.is_primary_key());
     info->set_is_autoid(field.autoid());
-    for (int i = 0; i < (int)nested_path.size(); ++i)
-      info->set_nested_path(i, nested_path[i]);
+    for (int i = 0; i < (int)nested_path.size(); ++i) {
+      auto path_added = info->add_nested_path();
+      *path_added = nested_path[i];
+    }
     info->set_is_primary_key(field.is_primary_key());
     info->set_element_type(field.element_type());
     col_expr->set_allocated_info(info);
@@ -405,10 +404,10 @@ public:
     auto info = child_expr->column_expr().info();
     assert(!(info.data_type() == proto::schema::DataType::JSON &&
              info.nested_path_size() == 0));
-    assert((child_expr_with_type.dtype == proto::schema::DataType::String ||
+    assert((child_expr_with_type.dtype == proto::schema::DataType::VarChar ||
             child_expr_with_type.dtype == proto::schema::DataType::JSON) ||
            (child_expr_with_type.dtype == proto::schema::DataType::Array &&
-            info.element_type() == proto::schema::DataType::String));
+            info.element_type() == proto::schema::DataType::VarChar));
 
     auto str = ctx->StringLiteral()->getText();
     auto pattern = convertEscapeSingle(str);
@@ -421,8 +420,9 @@ public:
         google::protobuf::Arena::CreateMessage<proto::plan::UnaryRangeExpr>(
             arena.get());
     unaryrange_expr->set_op(res.first);
-    unaryrange_expr->set_allocated_column_info(
-        new proto::plan::ColumnInfo(info));
+    unaryrange_expr->unsafe_arena_set_allocated_column_info(
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
     expr->set_allocated_unary_range_expr(unaryrange_expr);
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
   }
@@ -437,7 +437,6 @@ public:
     auto right_value = extractValue(right_expr_with_type.expr);
 
     if (left_value.has_value() && right_value.has_value()) {
-
 #define PROCESS_EQALITY(left_type, right_type)                                 \
   if (left_value.type() == typeid(left_type) &&                                \
       right_value.type() == typeid(right_type)) {                              \
@@ -475,11 +474,11 @@ public:
 
     if (left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
-      ExprWithDtype left = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
-              this->arena.get(),
-              left_expr_with_type.expr->value_expr().value()),
-          this->arena.get());
+      ExprWithDtype left =
+          toValueExpr(CreateMessageWithCopy<proto::plan::GenericValue>(
+                          this->arena.get(),
+                          left_expr_with_type.expr->value_expr().value()),
+                      this->arena.get());
       ExprWithDtype right = right_expr_with_type;
 
       return ExprWithDtype(
@@ -489,10 +488,9 @@ public:
 
     if (!left_expr_with_type.expr->has_value_expr() &&
         right_expr_with_type.expr->has_value_expr()) {
-
       ExprWithDtype left = left_expr_with_type;
-      ExprWithDtype right = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+      ExprWithDtype right =
+          toValueExpr(CreateMessageWithCopy<proto::plan::GenericValue>(
               this->arena.get(),
               right_expr_with_type.expr->value_expr().value()));
 
@@ -503,7 +501,6 @@ public:
 
     if (!left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
-
       return ExprWithDtype(
           HandleCompare(ctx->op->getType(), left_expr_with_type,
                         right_expr_with_type, this->arena.get()),
@@ -517,7 +514,6 @@ public:
   getChildColumnInfo(antlr4::tree::TerminalNode *identifier,
                      antlr4::tree::TerminalNode *child) {
     if (identifier) {
-
       auto text = identifier->getText();
       auto field = helper->GetFieldFromNameDefaultJSON(text);
       std::vector<std::string> nested_path;
@@ -533,8 +529,10 @@ public:
       info->set_data_type(field.data_type());
       info->set_is_primary_key(field.is_primary_key());
       info->set_is_autoid(field.autoid());
-      for (int i = 0; i < (int)nested_path.size(); ++i)
-        info->set_nested_path(i, nested_path[i]);
+      for (int i = 0; i < (int)nested_path.size(); ++i) {
+        auto path_added = info->add_nested_path();
+        *path_added = nested_path[i];
+      }
       info->set_is_primary_key(field.is_primary_key());
       info->set_element_type(field.element_type());
       return info;
@@ -575,8 +573,10 @@ public:
     info->set_data_type(field.data_type());
     info->set_is_primary_key(field.is_primary_key());
     info->set_is_autoid(field.autoid());
-    for (int i = 0; i < (int)nested_path.size(); ++i)
-      info->set_nested_path(i, nested_path[i]);
+    for (int i = 0; i < (int)nested_path.size(); ++i) {
+      auto path_added = info->add_nested_path();
+      *path_added = nested_path[i];
+    }
     info->set_is_primary_key(field.is_primary_key());
     info->set_element_type(field.element_type());
     return info;
@@ -596,16 +596,22 @@ public:
         info->data_type() == proto::schema::DataType::Int64 ||
         info->data_type() == proto::schema::DataType::Float ||
         info->data_type() == proto::schema::DataType::Double ||
-        info->data_type() == proto::schema::DataType::String) {
+        info->data_type() == proto::schema::DataType::VarChar) {
       auto a = extractValue(lower.expr);
       auto b = extractValue(upper.expr);
       if (a.has_value() && b.has_value()) {
         bool lowerinclusive = ctx->op1->getType() == PlanParser::GE;
         bool upperinclusive = ctx->op2->getType() == PlanParser::GE;
-        auto expr = new proto::plan::Expr();
-        auto binary_range_expr = new proto::plan::BinaryRangeExpr();
-        auto lower_value = new proto::plan::GenericValue();
-        auto upper_value = new proto::plan::GenericValue();
+        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+            this->arena.get());
+        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
+            proto::plan::BinaryRangeExpr>(this->arena.get());
+        auto lower_value =
+            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+                this->arena.get());
+        auto upper_value =
+            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+                this->arena.get());
         if (a.type() == typeid(int8_t))
           lower_value->set_int64_val(int64_t(std::any_cast<int8_t>(a)));
         if (a.type() == typeid(int16_t))
@@ -659,7 +665,6 @@ public:
     auto right_value = extractValue(right_expr_with_type.expr);
 
     if (left_value.has_value() && right_value.has_value()) {
-
 #define PROCESS_ADDSUB(left_type, right_type, target_type, datatype)           \
   if (left_value.type() == typeid(left_type) &&                                \
       right_value.type() == typeid(right_type)) {                              \
@@ -756,11 +761,9 @@ public:
     auto left_value = extractValue(left_expr_with_type.expr);
     auto right_value = extractValue(right_expr_with_type.expr);
     if (left_value.has_value() && right_value.has_value()) {
-
 #define PROCESS_RELATIONAL(left_type, right_type)                              \
   if (left_value.type() == typeid(left_type) &&                                \
       right_value.type() == typeid(right_type)) {                              \
-                                                                               \
     switch (ctx->op->getType()) {                                              \
     case PlanParser::LT:                                                       \
       return ExprWithDtype(                                                    \
@@ -801,8 +804,8 @@ public:
 
     if (left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
-      ExprWithDtype left = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+      ExprWithDtype left =
+          toValueExpr(CreateMessageWithCopy<proto::plan::GenericValue>(
               this->arena.get(),
               left_expr_with_type.expr->value_expr().value()));
       ExprWithDtype right = right_expr_with_type;
@@ -815,8 +818,8 @@ public:
     if (!left_expr_with_type.expr->has_value_expr() &&
         right_expr_with_type.expr->has_value_expr()) {
       ExprWithDtype left = left_expr_with_type;
-      ExprWithDtype right = toValueExpr(
-          google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+      ExprWithDtype right =
+          toValueExpr(CreateMessageWithCopy<proto::plan::GenericValue>(
               this->arena.get(),
               right_expr_with_type.expr->value_expr().value()));
 
@@ -827,7 +830,6 @@ public:
 
     if (!left_expr_with_type.expr->has_value_expr() &&
         !right_expr_with_type.expr->has_value_expr()) {
-
       return ExprWithDtype(
           HandleCompare(ctx->op->getType(), left_expr_with_type,
                         right_expr_with_type, this->arena.get()),
@@ -838,7 +840,6 @@ public:
 
   virtual std::any
   visitArrayLength(PlanParser::ArrayLengthContext *ctx) override {
-
     auto info = getChildColumnInfo(ctx->Identifier(), ctx->JSONIdentifier());
     assert(info);
     assert(info->data_type() == proto::schema::Array ||
@@ -960,21 +961,20 @@ public:
             this->arena.get());
     auto value = json_contain_expr->add_elements();
     value->unsafe_arena_set_allocated_array_val(
-        google::protobuf::Arena::CreateMessage<proto::plan::Array>(
+        CreateMessageWithCopy<proto::plan::Array>(
             this->arena.get(), elem.expr->value_expr().value().array_val()));
     json_contain_expr->set_elements_same_type(true);
     json_contain_expr->set_allocated_column_info(
-        new proto::plan::ColumnInfo(info));
+        CreateMessageWithCopy(this->arena.get(), info));
     json_contain_expr->unsafe_arena_set_allocated_column_info(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
-            this->arena.get(), info));
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
     json_contain_expr->set_op(proto::plan::JSONContainsExpr_JSONOp_Contains);
     expr->set_allocated_json_contains_expr(json_contain_expr);
     return ExprWithDtype(expr, proto::schema::Bool, false);
   }
 
   virtual std::any visitRange(PlanParser::RangeContext *ctx) override {
-
     auto info = getChildColumnInfo(ctx->Identifier(), ctx->JSONIdentifier());
     assert(info != nullptr);
     assert(checkDirectComparisonBinaryField(info));
@@ -987,16 +987,22 @@ public:
         info->data_type() == proto::schema::DataType::Int64 ||
         info->data_type() == proto::schema::DataType::Float ||
         info->data_type() == proto::schema::DataType::Double ||
-        info->data_type() == proto::schema::DataType::String) {
+        info->data_type() == proto::schema::DataType::VarChar) {
       auto a = extractValue(lower.expr);
       auto b = extractValue(upper.expr);
       if (a.has_value() && b.has_value()) {
         bool lowerinclusive = ctx->op1->getType() == PlanParser::LE;
         bool upperinclusive = ctx->op2->getType() == PlanParser::LE;
-        auto expr = new proto::plan::Expr();
-        auto binary_range_expr = new proto::plan::BinaryRangeExpr();
-        auto lower_value = new proto::plan::GenericValue();
-        auto upper_value = new proto::plan::GenericValue();
+        auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
+            this->arena.get());
+        auto binary_range_expr = google::protobuf::Arena::CreateMessage<
+            proto::plan::BinaryRangeExpr>(this->arena.get());
+        auto lower_value =
+            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+                this->arena.get());
+        auto upper_value =
+            google::protobuf::Arena::CreateMessage<proto::plan::GenericValue>(
+                this->arena.get());
         if (a.type() == typeid(int8_t))
           lower_value->set_int64_val(int64_t(std::any_cast<int8_t>(a)));
         if (a.type() == typeid(int16_t))
@@ -1046,7 +1052,6 @@ public:
         std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
     auto value = extractValue(expr_with_dtype.expr);
     if (value.has_value()) {
-
 #define PROCESS_UNARY(dtype, schema_dtype)                                     \
   if (value.type() == typeid(dtype)) {                                         \
     switch (ctx->op->getType()) {                                              \
@@ -1076,7 +1081,7 @@ public:
     }
 
     assert(checkDirectComparisonBinaryField(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(
             this->arena.get(), expr_with_dtype.expr->column_expr().info())));
 
     switch (ctx->op->getType()) {
@@ -1098,7 +1103,6 @@ public:
   }
 
   virtual std::any visitArray(PlanParser::ArrayContext *ctx) override {
-
     auto expr = google::protobuf::Arena::CreateMessage<proto::plan::Expr>(
         this->arena.get());
     auto array_expr =
@@ -1141,7 +1145,6 @@ public:
             is_same = false;
           }
           if (dtype == proto::schema::DataType::None) {
-
             dtype = proto::schema::DataType::Int32;
           }
           continue;
@@ -1201,7 +1204,6 @@ public:
   }
   virtual std::any
   visitJSONContainsAny(PlanParser::JSONContainsAnyContext *ctx) override {
-
     auto field = std::any_cast<ExprWithDtype>(ctx->expr()[0]->accept(this));
     auto info = field.expr->column_expr().info();
     assert(info.data_type() == proto::schema::DataType::Array ||
@@ -1221,14 +1223,14 @@ public:
 
     auto value = json_contain_expr->add_elements();
     value->unsafe_arena_set_allocated_array_val(
-        google::protobuf::Arena::CreateMessage<proto::plan::Array>(
+        CreateMessageWithCopy<proto::plan::Array>(
             this->arena.get(), elem.expr->value_expr().value().array_val()));
 
     json_contain_expr->set_elements_same_type(
         elem.expr->value_expr().value().array_val().same_type());
     json_contain_expr->unsafe_arena_set_allocated_column_info(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
-            this->arena.get(), info));
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
     json_contain_expr->set_op(proto::plan::JSONContainsExpr_JSONOp_ContainsAny);
     expr->unsafe_arena_set_allocated_json_contains_expr(json_contain_expr);
     return ExprWithDtype(expr, proto::schema::Bool, false);
@@ -1245,16 +1247,13 @@ public:
         google::protobuf::Arena::CreateMessage<proto::plan::ColumnExpr>(
             this->arena.get());
     col_expr->unsafe_arena_set_allocated_info(
-        new proto::plan::ColumnInfo(info));
-    col_expr->unsafe_arena_set_allocated_info(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
-            this->arena.get(), info));
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
     expr->unsafe_arena_set_allocated_column_expr(col_expr);
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
   }
 
   virtual std::any visitEmptyTerm(PlanParser::EmptyTermContext *ctx) override {
-
     auto first = std::any_cast<ExprWithDtype>(ctx->expr()->accept(this));
     auto info = first.expr->column_expr().info();
 
@@ -1269,8 +1268,8 @@ public:
 
     expr->unsafe_arena_set_allocated_term_expr(term_expr);
     col_expr->unsafe_arena_set_allocated_info(
-        google::protobuf::Arena::CreateMessage<proto::plan::ColumnInfo>(
-            this->arena.get(), info));
+        CreateMessageWithCopy<proto::plan::ColumnInfo>(this->arena.get(),
+                                                       info));
     expr->unsafe_arena_set_allocated_column_expr(col_expr);
     expr->unsafe_arena_set_allocated_term_expr(term_expr);
     return ExprWithDtype(expr, proto::schema::DataType::Bool, false);
@@ -1283,6 +1282,7 @@ private:
   SchemaHelper *helper;
   std::shared_ptr<google::protobuf::Arena> arena;
 };
+
 } // namespace milvus
 
 void check_expr(const std::string &exprstr, milvus::SchemaHelper &helper) {
